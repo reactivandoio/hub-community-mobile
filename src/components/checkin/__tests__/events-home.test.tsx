@@ -1,5 +1,5 @@
 import React from 'react';
-import { MockedProvider } from '@apollo/client/testing';
+import { MockedProvider, type MockedResponse } from '@apollo/client/testing';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { CheckinStore, MemoryStorage } from '@/features/checkin/store';
 import { CheckinStoreProvider } from '@/features/checkin/store-provider';
@@ -18,7 +18,7 @@ const mocks = [
   },
 ];
 
-const renderHome = async (store: CheckinStore, providerMocks = mocks) =>
+const renderHome = async (store: CheckinStore, providerMocks: MockedResponse[] = mocks) =>
   render(
     <MockedProvider mocks={providerMocks}>
       <CheckinStoreProvider store={store}>
