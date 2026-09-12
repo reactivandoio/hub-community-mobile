@@ -13,6 +13,8 @@ pnpm android           # emulador Android
 pnpm test
 ```
 
+Impressão USB exige dev build Android: `pnpm android` (emulador ou aparelho com OTG).
+
 ## Estrutura
 
 ```
