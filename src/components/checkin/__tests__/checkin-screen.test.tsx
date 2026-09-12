@@ -17,7 +17,7 @@ const device = (hasPermission: boolean) => ({ deviceName: '/dev/p', vendorId: 1,
 const printer = (ready: boolean): PrinterState => ({ available: true, devices: [], selected: ready ? device(true) : null, ready, permissionDenied: false, refresh: () => {}, select: async () => true });
 const unpermitted: PrinterState = { ...printer(false), devices: [device(false)], selected: device(false), permissionDenied: true };
 
-const setup = async ({ ready = true, printerState, printBadge = jest.fn().mockResolvedValue(undefined) }: { ready?: boolean; printerState?: PrinterState; printBadge?: jest.Mock } = {}) => {
+const setup = async ({ ready = true, printerState, printBadge = jest.fn().mockResolvedValue(undefined), select, selectKey }: { ready?: boolean; printerState?: PrinterState; printBadge?: jest.Mock; select?: string; selectKey?: string } = {}) => {
   const store = new CheckinStore({ storage: new MemoryStorage(), now: () => '2026-09-12T10:00:00.000Z', uuid: () => 'u' });
   store.loadEvent('ev', 'Evento', [
     { id: 's1', name: 'José Ção', email: 'jose@x.io', product_name: 'Lote 1' },
@@ -25,14 +25,15 @@ const setup = async ({ ready = true, printerState, printBadge = jest.fn().mockRe
   ]);
   const transport: CheckinTransport = { fetchSignups: async () => [], checkin: async () => ({ success: true }), walkin: async () => ({ success: true }) };
   const engine = new SyncEngine({ store, transport, connectivity: new FakeConnectivity(false) });
-  await render(
+  const ui = (props: { select?: string; selectKey?: string }) => (
     <MockedProvider mocks={[]}>
       <CheckinStoreProvider store={store}>
-        <CheckinScreen slug="ev" engine={engine} printer={printerState ?? printer(ready)} printBadge={printBadge} />
+        <CheckinScreen slug="ev" engine={engine} printer={printerState ?? printer(ready)} printBadge={printBadge} {...props} />
       </CheckinStoreProvider>
-    </MockedProvider>,
+    </MockedProvider>
   );
-  return { store, printBadge };
+  const { rerender } = await render(ui({ select, selectKey }));
+  return { store, printBadge, rerender: (props: { select?: string; selectKey?: string }) => rerender(ui(props)) };
 };
 
 describe('CheckinScreen', () => {
@@ -79,6 +80,19 @@ describe('CheckinScreen', () => {
     expect(screen.getByText('Impressora sem permissão — toque em Selecionar nas configurações')).toBeTruthy();
     expect(screen.queryByText('Sem impressora selecionada')).toBeNull();
     expect(screen.getByText('Credenciar sem imprimir')).toBeTruthy();
+  });
+
+  it('opens the sheet for the signup named by the select param, on mount and when it changes', async () => {
+    const { rerender } = await setup({ select: 's1', selectKey: '1' });
+    expect(screen.getByText('Imprimir e credenciar')).toBeTruthy();
+    expect(screen.getAllByText('José Ção')).toHaveLength(2);
+    await fireEvent.press(screen.getByText('Fechar'));
+    expect(screen.queryByText('Imprimir e credenciar')).toBeNull();
+    // Same signup asked for again from the walk-in form (new key) reopens it.
+    await act(async () => {
+      await rerender({ select: 's1', selectKey: '2' });
+    });
+    expect(screen.getByText('Imprimir e credenciar')).toBeTruthy();
   });
 
   it('disables printing when no printer is ready and shows reprint for checked-in people', async () => {

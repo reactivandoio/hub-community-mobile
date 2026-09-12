@@ -16,12 +16,13 @@ const setup = async ({ batchId = '7', printerState = printer, printBadge = jest.
   store.loadEvent('ev', 'Evento', [{ id: 's1', name: 'Ana', email: 'Ana@x.io' }]);
   store.updateSettings('ev', { batchId });
   const onDone = jest.fn();
+  const onExisting = jest.fn();
   await render(
     <CheckinStoreProvider store={store}>
-      <WalkinForm slug="ev" printer={printerState} printBadge={printBadge} onDone={onDone} />
+      <WalkinForm slug="ev" printer={printerState} printBadge={printBadge} onDone={onDone} onExisting={onExisting} />
     </CheckinStoreProvider>,
   );
-  return { store, onDone, printBadge };
+  return { store, onDone, onExisting, printBadge };
 };
 
 const fill = async (name: string, email: string) => {
@@ -61,13 +62,14 @@ describe('WalkinForm', () => {
     expect(screen.getByText('E-mail inválido')).toBeTruthy();
   });
 
-  it('detects an email that is already signed up', async () => {
-    const { onDone } = await setup();
+  it('detects an email that is already signed up and hands the existing signup to onExisting', async () => {
+    const { onDone, onExisting } = await setup();
     await fill('Ana', 'ana@X.IO ');
     await fireEvent.press(screen.getByText('Imprimir e inscrever'));
     expect(screen.getByText('Este e-mail já está inscrito')).toBeTruthy();
     await fireEvent.press(screen.getByText('Ir para o check-in'));
-    expect(onDone).toHaveBeenCalledWith('s1');
+    expect(onExisting).toHaveBeenCalledWith('s1');
+    expect(onDone).not.toHaveBeenCalled();
   });
 
   it('creates the walk-in, prints, checks in and enqueues both operations', async () => {
