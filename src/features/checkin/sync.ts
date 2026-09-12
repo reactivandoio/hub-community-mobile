@@ -163,7 +163,7 @@ export class SyncEngine {
       const server = await transport.fetchSignups(slug);
       if (!isCurrent()) return;
       store.applyPull(slug, server);
-      const report = await processOutbox(store, slug, transport, now);
+      const report = await processOutbox(store, slug, transport, now, isCurrent);
       if (!isCurrent()) return;
       if (report.stoppedByNetwork) throw new Error('Sem conexão com o servidor');
       this.setStatus({ syncing: false, lastError: undefined, lastSyncAt: now() });

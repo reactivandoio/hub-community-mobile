@@ -135,6 +135,35 @@ describe('SyncEngine', () => {
     expect(transport.checkin).toHaveBeenCalledWith('ev', 's2', expect.any(String));
   });
 
+  it('a run superseded by a same-slug restart sends no further outbox items', async () => {
+    let nextId = 0;
+    const store = new CheckinStore({ storage: new MemoryStorage(), uuid: () => `id${++nextId}` });
+    store.loadEvent('ev', 'Evento', [{ id: 's1', name: 'Ana' }, { id: 's2', name: 'Bia' }]);
+    store.checkIn('ev', 's1');
+    store.checkIn('ev', 's2');
+    let resolveFirstCheckin: (value: MutationResult) => void = () => {};
+    const transport: jest.Mocked<CheckinTransport> = {
+      fetchSignups: jest
+        .fn()
+        .mockResolvedValueOnce([{ id: 's1', name: 'Ana' }, { id: 's2', name: 'Bia' }])
+        .mockImplementation(() => new Promise(() => {})), // the restarted run's pull never settles
+      checkin: jest.fn().mockImplementationOnce(() => new Promise((resolve) => (resolveFirstCheckin = resolve))).mockResolvedValue({ success: true }),
+      walkin: jest.fn().mockResolvedValue({ success: true, signup: { id: 's9', name: 'C' } }),
+    };
+    const engine = new SyncEngine({ store, transport, connectivity: new FakeConnectivity(true), pullIntervalMs: 30_000 });
+
+    engine.start('ev');
+    await flush(); // first run: pull done, blocked on checkin('s1')
+    engine.start('ev'); // same slug (screen remount): supersedes the first run
+    await flush();
+    resolveFirstCheckin({ success: true });
+    await flush();
+    await flush();
+    expect(transport.checkin).toHaveBeenCalledTimes(1);
+    expect(transport.checkin).toHaveBeenCalledWith('ev', 's1', expect.any(String));
+    expect(store.getEvent('ev')!.outbox.map((i) => i.kind === 'checkin' && i.signupId)).toEqual(['s2']);
+  });
+
   it('ignores results from a stale run when restarted with a different slug', async () => {
     const store = new CheckinStore({ storage: new MemoryStorage(), uuid: () => 'u' });
     store.loadEvent('a', 'Evento A', [{ id: 'a1', name: 'Ana' }]);

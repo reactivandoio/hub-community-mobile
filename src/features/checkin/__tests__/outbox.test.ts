@@ -127,6 +127,23 @@ describe('processOutbox', () => {
     });
   });
 
+  it('stops between items once isCurrent() reports the run was superseded', async () => {
+    const { store, transport } = make();
+    store.checkIn('ev', 's1');
+    store.addWalkin('ev', { name: 'Caio', email: 'c@x.io' });
+    let current = true;
+    transport.checkin.mockImplementation(async () => {
+      current = false;
+      return { success: true };
+    });
+    const report = await processOutbox(store, 'ev', transport, undefined, () => current);
+    expect(transport.checkin).toHaveBeenCalledTimes(1);
+    expect(transport.walkin).not.toHaveBeenCalled();
+    expect(report.sent).toBe(1);
+    // The in-flight item's real server response is still recorded.
+    expect(store.getEvent('ev')!.outbox.map((i) => i.kind)).toEqual(['walkin']);
+  });
+
   it('treats unknown errors as permanent failures', async () => {
     const { store, transport } = make();
     transport.checkin.mockRejectedValueOnce(new Error('GraphQL boom'));

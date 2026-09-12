@@ -27,17 +27,24 @@ const MAX_INFRA_ATTEMPTS = 5;
 /**
  * Pushes the event's outbox FIFO. Business failures mark the item and move on;
  * a network error stops the run (nothing else would get through either).
+ *
+ * `isCurrent` lets the caller retire a run that was superseded (SyncEngine
+ * restarted for the same slug): the loop stops before the next item once it
+ * returns false. The item already in flight still records its real server
+ * response — discarding it would resend an operation the BFF has applied.
  */
 export async function processOutbox(
   store: CheckinStore,
   slug: string,
   transport: CheckinTransport,
   now: () => string = () => new Date().toISOString(),
+  isCurrent: () => boolean = () => true,
 ): Promise<OutboxReport> {
   const report: OutboxReport = { sent: 0, failed: 0, blocked: 0, stoppedByNetwork: false };
   const items = store.getEvent(slug)?.outbox ?? [];
 
   for (const item of items) {
+    if (!isCurrent()) return report;
     // Re-read the current item: a walk-in resolved earlier in this run may have
     // remapped a later check-in's signupId (the `items` snapshot is stale).
     const current = store.getEvent(slug)?.outbox.find((i) => i.id === item.id);
