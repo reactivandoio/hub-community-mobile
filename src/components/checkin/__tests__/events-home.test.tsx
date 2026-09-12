@@ -18,9 +18,9 @@ const mocks = [
   },
 ];
 
-const renderHome = async (store: CheckinStore) =>
+const renderHome = async (store: CheckinStore, providerMocks = mocks) =>
   render(
-    <MockedProvider mocks={mocks}>
+    <MockedProvider mocks={providerMocks}>
       <CheckinStoreProvider store={store}>
         <EventsHome />
       </CheckinStoreProvider>
@@ -46,7 +46,21 @@ describe('EventsHome', () => {
     const store = new CheckinStore({ storage: new MemoryStorage(), now: () => '2026-09-12T13:05:00.000Z' });
     store.loadEvent('meetup', 'Meetup', []);
     await renderHome(store);
-    fireEvent.press(await screen.findByText(/Abrir/));
+    expect(await screen.findByText('Recarregar')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Abrir'));
+    expect(mockPush).toHaveBeenCalledWith('/checkin/meetup');
+  });
+
+  it('lists loaded events and opens them even when the events query fails (offline cold start)', async () => {
+    const store = new CheckinStore({ storage: new MemoryStorage(), now: () => '2026-09-12T13:05:00.000Z' });
+    store.loadEvent('meetup', 'Meetup', []);
+    const failing = [{ request: { query: EVENTS, variables: { sort: [{ start_date: 'DESC' }] } }, error: new Error('Network request failed') }];
+    await renderHome(store, failing);
+    expect(await screen.findByText(/Erro ao carregar eventos/)).toBeTruthy();
+    expect(screen.getByText('Eventos carregados')).toBeTruthy();
+    expect(screen.getByText('Meetup')).toBeTruthy();
+    expect(screen.getByText(/carregado às/)).toBeTruthy();
+    await fireEvent.press(screen.getByText('Abrir'));
     expect(mockPush).toHaveBeenCalledWith('/checkin/meetup');
   });
 });
