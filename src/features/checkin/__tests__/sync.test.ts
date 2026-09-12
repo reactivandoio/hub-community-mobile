@@ -63,13 +63,42 @@ describe('SyncEngine', () => {
     expect(engine.getStatus().lastSyncAt).toEqual(expect.any(String));
   });
 
-  it('pushes new outbox items as they are enqueued', async () => {
+  it('pushes new outbox items as they are enqueued, without pulling again', async () => {
     const { engine, transport, store } = make();
     engine.start('ev');
     await flush();
+    expect(transport.fetchSignups).toHaveBeenCalledTimes(1);
     store.checkIn('ev', 's1');
     await flush();
     expect(transport.checkin).toHaveBeenCalledTimes(1);
+    expect(transport.fetchSignups).toHaveBeenCalledTimes(1);
+  });
+
+  it('still pushes the outbox when the pull fails with a non-network error', async () => {
+    const { engine, transport, store } = make();
+    transport.fetchSignups.mockRejectedValueOnce(new Error('GraphQL boom'));
+    store.checkIn('ev', 's1');
+    engine.start('ev');
+    await flush();
+    expect(transport.checkin).toHaveBeenCalledWith('ev', 's1', expect.any(String));
+    expect(store.getEvent('ev')!.outbox).toEqual([]);
+    expect(engine.getStatus()).toMatchObject({ syncing: false, lastError: 'GraphQL boom' });
+  });
+
+  it('a manual sync requested during a push-only run is followed by a pull', async () => {
+    const { engine, transport, store } = make();
+    engine.start('ev');
+    await flush();
+    let resolveCheckin: (value: MutationResult) => void = () => {};
+    transport.checkin.mockImplementationOnce(() => new Promise((resolve) => (resolveCheckin = resolve)));
+    store.checkIn('ev', 's1'); // push-only run, blocked on checkin
+    await flush();
+    expect(transport.fetchSignups).toHaveBeenCalledTimes(1);
+    const manual = engine.syncNow();
+    resolveCheckin({ success: true });
+    await manual;
+    await flush();
+    expect(transport.fetchSignups).toHaveBeenCalledTimes(2);
   });
 
   it('records network failures in the status and keeps going', async () => {
