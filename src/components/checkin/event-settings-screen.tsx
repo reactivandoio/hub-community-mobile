@@ -45,13 +45,17 @@ export function EventSettingsScreen({ slug, printer: printerOverride }: { slug: 
 
   const commitDensity = () => {
     const parsed = Number(densityText);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
+    if (densityText.trim() === '' || !Number.isFinite(parsed)) {
       setDensityText(String(label.density));
       return;
     }
-    updateLabel({ density: parsed });
-    setDensityText(String(parsed));
+    // TSPL DENSITY takes an integer 0-15.
+    const density = Math.min(15, Math.max(0, Math.round(parsed)));
+    updateLabel({ density });
+    setDensityText(String(density));
   };
+
+  const signupName = (id: string) => event.signups.find((s) => s.id === id)?.name ?? id;
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
@@ -105,7 +109,7 @@ export function EventSettingsScreen({ slug, printer: printerOverride }: { slug: 
       <Text style={styles.h}>Pendências com erro ({failed.length})</Text>
       {failed.map((item) => (
         <View key={item.id} style={styles.failed}>
-          <Text>{item.kind === 'walkin' ? `Inscrição: ${item.input.name}` : `Check-in: ${item.signupId}`}</Text>
+          <Text>{item.kind === 'walkin' ? `Inscrição: ${item.input.name}` : `Check-in: ${signupName(item.signupId)}`}</Text>
           <Text style={styles.warn}>{item.lastError}</Text>
           <View style={styles.row}>
             <Button title="Tentar de novo" onPress={() => store.retryOutboxItem(slug, item.id)} />
