@@ -78,6 +78,55 @@ describe('processOutbox', () => {
     expect(store.getEvent('ev')!.outbox[0]).toMatchObject({ failed: true, lastError: 'Selecione o lote nas configurações' });
   });
 
+  describe('success:false from the BFF', () => {
+    // The store's clock is frozen at 10:00, so any backoff has expired by here.
+    const later = () => '2026-09-13T00:00:00.000Z';
+
+    it('keeps business failures permanent', async () => {
+      const { store, transport } = make();
+      transport.checkin.mockResolvedValue({ success: false, message: 'Inscrição não encontrada.' });
+      store.checkIn('ev', 's1');
+      const report = await processOutbox(store, 'ev', transport, later);
+      expect(report.failed).toBe(1);
+      expect(store.getEvent('ev')!.outbox[0]).toMatchObject({ failed: true, attempts: 0, lastError: 'Inscrição não encontrada.' });
+    });
+
+    it('retries the infra wrapper ("Erro ao ...") with backoff instead of parking it', async () => {
+      const { store, transport } = make();
+      transport.checkin.mockResolvedValue({ success: false, message: 'Erro ao realizar check-in: connect ECONNREFUSED' });
+      store.checkIn('ev', 's1');
+      const report = await processOutbox(store, 'ev', transport, later);
+      expect(report).toEqual({ sent: 0, failed: 1, blocked: 0, stoppedByNetwork: false });
+      expect(store.getEvent('ev')!.outbox[0]).toMatchObject({ attempts: 1, nextAttemptAt: '2026-09-12T10:00:05.000Z', lastError: 'Erro ao realizar check-in: connect ECONNREFUSED' });
+      expect(store.getEvent('ev')!.outbox[0].failed).toBeUndefined();
+    });
+
+    it('does not stop the run on an infra wrapper (later items are still sent)', async () => {
+      const { store, transport } = make();
+      transport.checkin.mockResolvedValueOnce({ success: false, message: 'Erro ao realizar check-in: timeout' });
+      store.checkIn('ev', 's1');
+      store.addWalkin('ev', { name: 'Caio', email: 'c@x.io' });
+      await processOutbox(store, 'ev', transport, later);
+      expect(transport.walkin).toHaveBeenCalledTimes(1);
+    });
+
+    it('parks the item after five infra-wrapped attempts', async () => {
+      const { store, transport } = make();
+      transport.checkin.mockResolvedValue({ success: false, message: 'Erro ao realizar check-in: db down' });
+      store.checkIn('ev', 's1');
+      for (let i = 1; i <= 4; i += 1) {
+        await processOutbox(store, 'ev', transport, later);
+        expect(store.getEvent('ev')!.outbox[0]).toMatchObject({ attempts: i });
+        expect(store.getEvent('ev')!.outbox[0].failed).toBeUndefined();
+      }
+      await processOutbox(store, 'ev', transport, later);
+      expect(transport.checkin).toHaveBeenCalledTimes(5);
+      expect(store.getEvent('ev')!.outbox[0]).toMatchObject({ failed: true, lastError: 'Erro ao realizar check-in: db down' });
+      await processOutbox(store, 'ev', transport, later);
+      expect(transport.checkin).toHaveBeenCalledTimes(5);
+    });
+  });
+
   it('treats unknown errors as permanent failures', async () => {
     const { store, transport } = make();
     transport.checkin.mockRejectedValueOnce(new Error('GraphQL boom'));
