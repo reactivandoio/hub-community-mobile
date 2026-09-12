@@ -46,6 +46,28 @@ describe('createApolloTransport', () => {
     await expect(createApolloTransport(clientWith(link)).checkin('ev', 's1', 't')).rejects.toBeInstanceOf(NetworkError);
   });
 
+  const serverError = (statusCode: number, result: unknown) =>
+    Object.assign(new Error(`Received status code ${statusCode}`), { name: 'ServerError', statusCode, result });
+
+  it('treats 5xx and 429 responses with a JSON body as NetworkError (retried with backoff)', async () => {
+    for (const status of [500, 502, 503, 429]) {
+      const link = new ApolloLink(() => new Observable((o) => o.error(serverError(status, { errors: [{ message: 'upstream down' }] }))));
+      await expect(createApolloTransport(clientWith(link)).checkin('ev', 's1', 't')).rejects.toBeInstanceOf(NetworkError);
+    }
+  });
+
+  it('surfaces the GraphQL message of a 4xx ServerError as a plain error', async () => {
+    const link = new ApolloLink(() => new Observable((o) => o.error(serverError(400, { errors: [{ message: 'Unknown argument "checkedInAt"' }] }))));
+    const err = await createApolloTransport(clientWith(link)).checkin('ev', 's1', 't').catch((e: Error) => e);
+    expect(err).not.toBeInstanceOf(NetworkError);
+    expect((err as Error).message).toBe('Unknown argument "checkedInAt"');
+  });
+
+  it('falls back to the status text when a 4xx ServerError has no GraphQL errors', async () => {
+    const link = new ApolloLink(() => new Observable((o) => o.error(serverError(404, 'not found'))));
+    await expect(createApolloTransport(clientWith(link)).checkin('ev', 's1', 't')).rejects.toThrow('Received status code 404');
+  });
+
   it('keeps GraphQL errors as plain errors', async () => {
     const link = new ApolloLink(() => Observable.of({ errors: [{ message: 'Unknown argument' }] } as never));
     await expect(createApolloTransport(clientWith(link)).checkin('ev', 's1', 't')).rejects.toThrow('Unknown argument');

@@ -33,7 +33,7 @@ const setup = async () => {
   store.checkIn('ev', 's1');
   store.outboxFailed('ev', 'u', 'E-mail inválido', { permanent: true });
   const select = jest.fn().mockResolvedValue(true);
-  const printer: PrinterState = { available: true, devices: [device], selected: null, ready: false, refresh: () => {}, select };
+  const printer: PrinterState = { available: true, devices: [device], selected: null, ready: false, permissionDenied: false, refresh: () => {}, select };
   await render(
     <MockedProvider mocks={mocks}>
       <CheckinStoreProvider store={store}>
@@ -70,6 +70,7 @@ describe('EventSettingsScreen', () => {
   it('shows failed outbox items with retry and discard', async () => {
     const { store } = await setup();
     expect(screen.getByText(/E-mail inválido/)).toBeTruthy();
+    expect(screen.getByText('Check-in: Ana')).toBeTruthy();
     await fireEvent.press(screen.getByText('Tentar de novo'));
     expect(store.getEvent('ev')!.outbox[0].failed).toBeUndefined();
   });
@@ -103,5 +104,18 @@ describe('EventSettingsScreen', () => {
     await fireEvent(densityInput, 'blur');
     expect(densityInput.props.value).toBe('5');
     expect(readLabelPrefs(getPrinterStorage()).density).toBe(5);
+  });
+
+  it('clamps density to the TSPL range 0-15 on commit', async () => {
+    await setup();
+    const densityInput = screen.getByLabelText('Densidade');
+    await fireEvent.changeText(densityInput, '20');
+    await fireEvent(densityInput, 'blur');
+    expect(densityInput.props.value).toBe('15');
+    expect(readLabelPrefs(getPrinterStorage()).density).toBe(15);
+    await fireEvent.changeText(densityInput, '0');
+    await fireEvent(densityInput, 'blur');
+    expect(densityInput.props.value).toBe('0');
+    expect(readLabelPrefs(getPrinterStorage()).density).toBe(0);
   });
 });

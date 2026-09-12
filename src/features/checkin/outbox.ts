@@ -13,19 +13,38 @@ export interface OutboxReport {
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
+ * The BFF's check-in/signup resolvers catch everything and answer
+ * `success: false` with "Erro ao realizar check-in: <cause>" (or another
+ * "Erro ao ..." wrapper) for infrastructure failures (DB down, timeout) as
+ * well as for business rules. Those wrappers are retried with backoff up to
+ * `MAX_INFRA_ATTEMPTS` sends before the item is parked for the operator; any
+ * other `success: false` message ("E-mail inválido", "Inscrição não
+ * encontrada.") is a business failure and is parked at once.
+ */
+const INFRA_WRAPPER = /^Erro ao /;
+const MAX_INFRA_ATTEMPTS = 5;
+
+/**
  * Pushes the event's outbox FIFO. Business failures mark the item and move on;
  * a network error stops the run (nothing else would get through either).
+ *
+ * `isCurrent` lets the caller retire a run that was superseded (SyncEngine
+ * restarted for the same slug): the loop stops before the next item once it
+ * returns false. The item already in flight still records its real server
+ * response — discarding it would resend an operation the BFF has applied.
  */
 export async function processOutbox(
   store: CheckinStore,
   slug: string,
   transport: CheckinTransport,
   now: () => string = () => new Date().toISOString(),
+  isCurrent: () => boolean = () => true,
 ): Promise<OutboxReport> {
   const report: OutboxReport = { sent: 0, failed: 0, blocked: 0, stoppedByNetwork: false };
   const items = store.getEvent(slug)?.outbox ?? [];
 
   for (const item of items) {
+    if (!isCurrent()) return report;
     // Re-read the current item: a walk-in resolved earlier in this run may have
     // remapped a later check-in's signupId (the `items` snapshot is stale).
     const current = store.getEvent(slug)?.outbox.find((i) => i.id === item.id);
@@ -60,7 +79,9 @@ export async function processOutbox(
     }
 
     if (!result.success) {
-      store.outboxFailed(slug, current.id, result.message || 'Falha no servidor', { permanent: true });
+      const message = result.message || 'Falha no servidor';
+      const transient = INFRA_WRAPPER.test(message) && current.attempts + 1 < MAX_INFRA_ATTEMPTS;
+      store.outboxFailed(slug, current.id, message, { permanent: !transient });
       report.failed += 1;
       continue;
     }

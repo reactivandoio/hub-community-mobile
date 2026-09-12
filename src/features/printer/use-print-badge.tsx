@@ -35,6 +35,10 @@ const defaultWaitForFrame = () =>
 /**
  * Renders the badge offscreen at print resolution, captures it as PNG and sends
  * it to the printer. One print at a time; errors are already user-friendly.
+ *
+ * `label` may be a getter: it is read at print time, so prefs edited in the
+ * settings screen while the check-in screen stays mounted apply to the next
+ * badge instead of the values captured on mount.
  */
 export function usePrintBadge({
   deviceName,
@@ -44,7 +48,7 @@ export function usePrintBadge({
   waitForFrame = defaultWaitForFrame,
 }: {
   deviceName: string | null;
-  label: LabelPrefs;
+  label: LabelPrefs | (() => LabelPrefs);
   module?: PrinterModule;
   capture?: Capture;
   waitForFrame?: () => Promise<void>;
@@ -68,7 +72,8 @@ export function usePrintBadge({
         await waitForFrame();
         await waitForFrame();
         const png = await capture(ref);
-        await module.printBitmap(deviceName, png, { gapMm: label.gapMm, density: label.density });
+        const { gapMm, density } = typeof label === 'function' ? label() : label;
+        await module.printBitmap(deviceName, png, { gapMm, density });
       } catch (e) {
         throw new Error(friendlyPrinterError(e));
       } finally {
@@ -76,7 +81,7 @@ export function usePrintBadge({
         setPrinting(false);
       }
     },
-    [deviceName, capture, module, label.gapMm, label.density, waitForFrame],
+    [deviceName, capture, module, label, waitForFrame],
   );
 
   const offscreen: ReactElement = (

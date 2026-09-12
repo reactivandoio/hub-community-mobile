@@ -5,22 +5,26 @@ import { useCheckinStore, useEventCache } from '@/features/checkin/store-provide
 import { getPrinterStorage, usePrinter, type PrinterState } from '@/features/printer/use-printer';
 import { readLabelPrefs } from '@/features/printer/printer-prefs';
 import { usePrintBadge, type BadgeData } from '@/features/printer/use-print-badge';
+import { NO_PERMISSION_MESSAGE, NO_PRINTER_MESSAGE } from './checkin-sheet';
 
 interface Props {
   slug: string;
   printer?: PrinterState;
   printBadge?: (data: BadgeData) => Promise<void>;
   onDone(signupId: string): void;
+  /** The e-mail is already signed up: take the operator to that signup's check-in. */
+  onExisting(signupId: string): void;
 }
 
 const EMAIL = /^\S+@\S+\.\S+$/;
+const currentLabel = () => readLabelPrefs(getPrinterStorage());
 
-export function WalkinForm({ slug, printer: printerOverride, printBadge: printOverride, onDone }: Props) {
+export function WalkinForm({ slug, printer: printerOverride, printBadge: printOverride, onDone, onExisting }: Props) {
   const store = useCheckinStore();
   const event = useEventCache(slug);
   const ownPrinter = usePrinter();
   const printer = printerOverride ?? ownPrinter;
-  const ownPrint = usePrintBadge({ deviceName: printer.selected?.deviceName ?? null, label: readLabelPrefs(getPrinterStorage()) });
+  const ownPrint = usePrintBadge({ deviceName: printer.selected?.deviceName ?? null, label: currentLabel });
   const print = printOverride ?? ownPrint.print;
 
   const [name, setName] = useState('');
@@ -87,9 +91,11 @@ export function WalkinForm({ slug, printer: printerOverride, printBadge: printOv
       <TextInput style={styles.input} placeholder="E-mail" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoCorrect={false} />
       <TextInput style={styles.input} placeholder="Telefone (opcional)" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {existingId ? <Button title="Ir para o check-in" onPress={() => onDone(existingId)} /> : null}
+      {existingId ? <Button title="Ir para o check-in" onPress={() => onExisting(existingId)} /> : null}
       <Button title={busy ? 'Imprimindo...' : 'Imprimir e inscrever'} disabled={busy || noBatch} onPress={() => void submit()} />
-      {!printer.ready ? <Text style={styles.warn}>Sem impressora selecionada — a inscrição será salva sem crachá</Text> : null}
+      {!printer.ready ? (
+        <Text style={styles.warn}>{printer.permissionDenied ? NO_PERMISSION_MESSAGE : NO_PRINTER_MESSAGE} — a inscrição será salva sem crachá</Text>
+      ) : null}
     </View>
   );
 }

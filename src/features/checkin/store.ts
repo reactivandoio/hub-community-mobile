@@ -158,25 +158,31 @@ export class CheckinStore {
   }
 
   resolveWalkin(slug: string, localId: string, server: ServerSignup) {
-    this.update(slug, (ev) => ({
-      ...ev,
-      signups: ev.signups
-        .filter((s) => s.id !== server.id || s.id === localId)
-        .map((s) =>
-          s.id === localId
-            ? {
-                ...s,
-                id: server.id,
-                name: server.name,
-                email: server.email ?? s.email,
-                phone_number: server.phone_number ?? s.phone_number,
-                product_name: server.product_name ?? undefined,
-                checked_in: s.checked_in || Boolean(server.checked_in),
-              }
-            : s,
-        ),
-      outbox: ev.outbox.map((item) => (item.kind === 'checkin' && item.signupId === localId ? { ...item, signupId: server.id } : item)),
-    }));
+    this.update(slug, (ev) => {
+      // Already resolved (a duplicate response from two concurrent outbox
+      // runs): nothing to remap, and the dedupe filter below must not drop
+      // the record that now carries the server id.
+      if (!ev.signups.some((s) => s.id === localId)) return ev;
+      return {
+        ...ev,
+        signups: ev.signups
+          .filter((s) => s.id !== server.id || s.id === localId)
+          .map((s) =>
+            s.id === localId
+              ? {
+                  ...s,
+                  id: server.id,
+                  name: server.name,
+                  email: server.email ?? s.email,
+                  phone_number: server.phone_number ?? s.phone_number,
+                  product_name: server.product_name ?? undefined,
+                  checked_in: s.checked_in || Boolean(server.checked_in),
+                }
+              : s,
+          ),
+        outbox: ev.outbox.map((item) => (item.kind === 'checkin' && item.signupId === localId ? { ...item, signupId: server.id } : item)),
+      };
+    });
   }
 
   outboxSucceeded(slug: string, itemId: string) {

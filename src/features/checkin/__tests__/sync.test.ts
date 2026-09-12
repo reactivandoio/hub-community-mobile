@@ -50,13 +50,55 @@ describe('SyncEngine', () => {
     expect(store.getEvent('ev')!.outbox).toEqual([]);
   });
 
-  it('pushes new outbox items as they are enqueued', async () => {
+  it('syncNow({ force: true }) attempts the run even while connectivity reports offline', async () => {
+    const { engine, transport, store } = make(false);
+    store.checkIn('ev', 's1');
+    engine.start('ev');
+    await flush();
+    await engine.syncNow();
+    expect(transport.fetchSignups).not.toHaveBeenCalled();
+    await engine.syncNow({ force: true });
+    expect(transport.fetchSignups).toHaveBeenCalledTimes(1);
+    expect(transport.checkin).toHaveBeenCalledTimes(1);
+    expect(engine.getStatus().lastSyncAt).toEqual(expect.any(String));
+  });
+
+  it('pushes new outbox items as they are enqueued, without pulling again', async () => {
     const { engine, transport, store } = make();
     engine.start('ev');
     await flush();
+    expect(transport.fetchSignups).toHaveBeenCalledTimes(1);
     store.checkIn('ev', 's1');
     await flush();
     expect(transport.checkin).toHaveBeenCalledTimes(1);
+    expect(transport.fetchSignups).toHaveBeenCalledTimes(1);
+  });
+
+  it('still pushes the outbox when the pull fails with a non-network error', async () => {
+    const { engine, transport, store } = make();
+    transport.fetchSignups.mockRejectedValueOnce(new Error('GraphQL boom'));
+    store.checkIn('ev', 's1');
+    engine.start('ev');
+    await flush();
+    expect(transport.checkin).toHaveBeenCalledWith('ev', 's1', expect.any(String));
+    expect(store.getEvent('ev')!.outbox).toEqual([]);
+    expect(engine.getStatus()).toMatchObject({ syncing: false, lastError: 'GraphQL boom' });
+  });
+
+  it('a manual sync requested during a push-only run is followed by a pull', async () => {
+    const { engine, transport, store } = make();
+    engine.start('ev');
+    await flush();
+    let resolveCheckin: (value: MutationResult) => void = () => {};
+    transport.checkin.mockImplementationOnce(() => new Promise((resolve) => (resolveCheckin = resolve)));
+    store.checkIn('ev', 's1'); // push-only run, blocked on checkin
+    await flush();
+    expect(transport.fetchSignups).toHaveBeenCalledTimes(1);
+    const manual = engine.syncNow();
+    resolveCheckin({ success: true });
+    await manual;
+    await flush();
+    expect(transport.fetchSignups).toHaveBeenCalledTimes(2);
   });
 
   it('records network failures in the status and keeps going', async () => {
@@ -120,6 +162,58 @@ describe('SyncEngine', () => {
     await flush();
     await flush(); // let the pendingRerun follow-up run (fetch + push s2) complete
     expect(transport.checkin).toHaveBeenCalledWith('ev', 's2', expect.any(String));
+  });
+
+  it('a run superseded by a same-slug restart sends no further outbox items', async () => {
+    let nextId = 0;
+    const store = new CheckinStore({ storage: new MemoryStorage(), uuid: () => `id${++nextId}` });
+    store.loadEvent('ev', 'Evento', [{ id: 's1', name: 'Ana' }, { id: 's2', name: 'Bia' }]);
+    store.checkIn('ev', 's1');
+    store.checkIn('ev', 's2');
+    let resolveFirstCheckin: (value: MutationResult) => void = () => {};
+    const transport: jest.Mocked<CheckinTransport> = {
+      fetchSignups: jest
+        .fn()
+        .mockResolvedValueOnce([{ id: 's1', name: 'Ana' }, { id: 's2', name: 'Bia' }])
+        .mockImplementation(() => new Promise(() => {})), // the restarted run's pull never settles
+      checkin: jest.fn().mockImplementationOnce(() => new Promise((resolve) => (resolveFirstCheckin = resolve))).mockResolvedValue({ success: true }),
+      walkin: jest.fn().mockResolvedValue({ success: true, signup: { id: 's9', name: 'C' } }),
+    };
+    const engine = new SyncEngine({ store, transport, connectivity: new FakeConnectivity(true), pullIntervalMs: 30_000 });
+
+    engine.start('ev');
+    await flush(); // first run: pull done, blocked on checkin('s1')
+    engine.start('ev'); // same slug (screen remount): supersedes the first run
+    await flush();
+    resolveFirstCheckin({ success: true });
+    await flush();
+    await flush();
+    expect(transport.checkin).toHaveBeenCalledTimes(1);
+    expect(transport.checkin).toHaveBeenCalledWith('ev', 's1', expect.any(String));
+    expect(store.getEvent('ev')!.outbox.map((i) => i.kind === 'checkin' && i.signupId)).toEqual(['s2']);
+  });
+
+  it('pushes again when a failed item is retried from the settings screen', async () => {
+    const { engine, transport, store } = make();
+    transport.checkin.mockResolvedValueOnce({ success: false, message: 'Inscrição não encontrada.' });
+    store.checkIn('ev', 's1');
+    engine.start('ev');
+    await flush();
+    expect(store.getEvent('ev')!.outbox[0].failed).toBe(true);
+    store.retryOutboxItem('ev', 'u');
+    await flush();
+    expect(transport.checkin).toHaveBeenCalledTimes(2);
+    expect(store.getEvent('ev')!.outbox).toEqual([]);
+  });
+
+  it('stop() clears the syncing flag of an abandoned run', async () => {
+    const { engine, transport } = make();
+    transport.fetchSignups.mockImplementationOnce(() => new Promise(() => {}));
+    engine.start('ev');
+    await flush();
+    expect(engine.getStatus().syncing).toBe(true);
+    engine.stop();
+    expect(engine.getStatus().syncing).toBe(false);
   });
 
   it('ignores results from a stale run when restarted with a different slug', async () => {

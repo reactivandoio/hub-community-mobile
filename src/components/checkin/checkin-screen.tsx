@@ -1,5 +1,5 @@
 import { useRouter, type Href } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Button, FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { matchesSearch } from '@/features/checkin/merge';
 import { useCheckinStore, useEventCache } from '@/features/checkin/store-provider';
@@ -15,23 +15,34 @@ import { StatusBar } from './status-bar';
 
 interface Props {
   slug: string;
+  /** Signup to open the sheet for (`?select=` from the walk-in form's "Ir para o check-in"). */
+  select?: string;
+  /** Changes on every navigation so the same `select` can be asked for twice. */
+  selectKey?: string;
   engine?: SyncEngine;
   printer?: PrinterState;
   printBadge?: (data: BadgeData) => Promise<void>;
 }
 
-export function CheckinScreen({ slug, engine, printer: printerOverride, printBadge: printOverride }: Props) {
+export function CheckinScreen({ slug, select, selectKey = select, engine, printer: printerOverride, printBadge: printOverride }: Props) {
   const store = useCheckinStore();
   const event = useEventCache(slug);
   const sync = useEventSync(slug, engine);
   const router = useRouter();
   const ownPrinter = usePrinter();
   const printer = printerOverride ?? ownPrinter;
-  const label = useMemo(() => readLabelPrefs(getPrinterStorage()), []);
-  const ownPrint = usePrintBadge({ deviceName: printer.selected?.deviceName ?? null, label });
+  const ownPrint = usePrintBadge({ deviceName: printer.selected?.deviceName ?? null, label: currentLabel });
   const print = printOverride ?? ownPrint.print;
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState<LocalSignup | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(select ?? null);
+  // The screen stays mounted when the walk-in form pops back to it with a new
+  // `select` param, so adopt the prop whenever its key changes (React's
+  // "adjust state on prop change" pattern; no effect needed).
+  const [appliedSelectKey, setAppliedSelectKey] = useState(selectKey);
+  if (selectKey !== appliedSelectKey) {
+    setAppliedSelectKey(selectKey);
+    setSelectedId(select ?? null);
+  }
 
   if (!event) {
     return (
@@ -43,6 +54,7 @@ export function CheckinScreen({ slug, engine, printer: printerOverride, printBad
   }
 
   const badge = (s: LocalSignup): BadgeData => ({ fullName: s.name, logoText: event.settings.logoText, link: event.settings.link });
+  const selected = selectedId ? (event.signups.find((s) => s.id === selectedId) ?? null) : null;
   const visible = event.signups.filter((s) => matchesSearch(s, query));
   const pending = event.outbox.filter((i) => !i.failed).length;
   const failed = event.outbox.filter((i) => i.failed).length;
@@ -74,13 +86,14 @@ export function CheckinScreen({ slug, engine, printer: printerOverride, printBad
       <FlatList
         data={visible}
         keyExtractor={(s) => s.id}
-        renderItem={({ item }) => <SignupRow signup={item} onPress={() => setSelected(item)} />}
+        renderItem={({ item }) => <SignupRow signup={item} onPress={() => setSelectedId(item.id)} />}
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={<Text style={styles.empty}>Nenhum inscrito encontrado.</Text>}
       />
       <CheckinSheet
         signup={selected}
         printerReady={printer.ready}
+        permissionDenied={printer.permissionDenied}
         printing={ownPrint.printing}
         onPrintAndCheckin={async (s) => {
           await print(badge(s));
@@ -92,11 +105,15 @@ export function CheckinScreen({ slug, engine, printer: printerOverride, printBad
           await print(badge(s));
           store.markPrinted(slug, s.id);
         }}
-        onClose={() => setSelected(null)}
+        onClose={() => setSelectedId(null)}
       />
     </View>
   );
 }
+
+// Read at print time (not memoised on mount) so gap/density edited in the
+// settings screen apply to the next badge.
+const currentLabel = () => readLabelPrefs(getPrinterStorage());
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },

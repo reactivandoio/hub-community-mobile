@@ -77,6 +77,20 @@ describe('CheckinStore', () => {
     expect(checkin).toMatchObject({ signupId: 's9' });
   });
 
+  it('resolveWalkin is a no-op once the local id is gone (a duplicate response must not drop the record)', () => {
+    const { store } = make();
+    store.loadEvent('ev', 'Evento', server);
+    const created = store.addWalkin('ev', { name: 'Caio', email: 'caio@x.io' });
+    store.checkIn('ev', created.id);
+    store.markPrinted('ev', created.id);
+    const resolved = { id: 's9', name: 'Caio Melo', email: 'caio@x.io' };
+    store.resolveWalkin('ev', created.id, resolved);
+    store.resolveWalkin('ev', created.id, resolved);
+    const ev = store.getEvent('ev')!;
+    expect(ev.signups.filter((s) => s.id === 's9')).toHaveLength(1);
+    expect(ev.signups.find((s) => s.id === 's9')).toMatchObject({ checked_in: true, printed_at: expect.any(String) });
+  });
+
   it('merges a pull without losing local check-ins', () => {
     const { store } = make();
     store.loadEvent('ev', 'Evento', server);

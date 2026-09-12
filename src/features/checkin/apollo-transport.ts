@@ -3,9 +3,31 @@ import { CHECKIN_SIGNUP, EVENT_SIGNUPS, MANUAL_SIGNUP } from '@/lib/queries';
 import { NetworkError, type CheckinTransport, type MutationResult } from './transport';
 import type { ServerSignup, WalkinInput } from './types';
 
+const graphqlMessage = (result: unknown): string | undefined => {
+  if (!result || typeof result !== 'object') return undefined;
+  const errors = (result as { errors?: unknown }).errors;
+  const first = Array.isArray(errors) ? errors[0] : undefined;
+  return first && typeof first === 'object' && typeof (first as { message?: unknown }).message === 'string'
+    ? (first as { message: string }).message
+    : undefined;
+};
+
+/**
+ * Sorts a failed request into "retry later" (NetworkError) vs "operator must
+ * look at it" (plain Error):
+ * - request never completed (offline, DNS, timeout), unparsable body (captive
+ *   portal, proxy page), HTTP 5xx or 429 → NetworkError;
+ * - any other HTTP status with a JSON body (4xx) → plain Error carrying the
+ *   first GraphQL error message when the BFF sent one, so the operator sees
+ *   e.g. `Unknown argument "checkedInAt"` instead of "Received status code 400".
+ */
 const rethrow = (e: unknown): never => {
-  if (e instanceof ApolloError && e.networkError && !('result' in e.networkError)) {
-    throw new NetworkError(e.networkError.message);
+  if (e instanceof ApolloError && e.networkError) {
+    const ne = e.networkError as Error & { statusCode?: number; result?: unknown };
+    const status = typeof ne.statusCode === 'number' ? ne.statusCode : undefined;
+    if (status !== undefined && (status >= 500 || status === 429)) throw new NetworkError(ne.message);
+    if (!('result' in ne)) throw new NetworkError(ne.message);
+    throw new Error(graphqlMessage(ne.result) ?? ne.message);
   }
   if (e instanceof TypeError && /network/i.test(e.message)) throw new NetworkError(e.message);
   throw e instanceof Error ? e : new Error(String(e));
