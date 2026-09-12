@@ -44,3 +44,7 @@ example
 
 # env
 .env
+
+# native module build output
+modules/**/android/build/
+modules/**/android/.cxx/
