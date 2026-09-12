@@ -3,7 +3,8 @@ import { MockedProvider } from '@apollo/client/testing';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { CheckinStore, MemoryStorage } from '@/features/checkin/store';
 import { CheckinStoreProvider } from '@/features/checkin/store-provider';
-import type { PrinterState } from '@/features/printer/use-printer';
+import { readLabelPrefs } from '@/features/printer/printer-prefs';
+import { getPrinterStorage, type PrinterState } from '@/features/printer/use-printer';
 import { EVENT_BATCHES } from '@/lib/queries';
 import { EventSettingsScreen } from '../event-settings-screen';
 
@@ -71,5 +72,36 @@ describe('EventSettingsScreen', () => {
     expect(screen.getByText(/E-mail inválido/)).toBeTruthy();
     await fireEvent.press(screen.getByText('Tentar de novo'));
     expect(store.getEvent('ev')!.outbox[0].failed).toBeUndefined();
+  });
+
+  it('lets the operator clear and retype the gap field without it snapping back to the default', async () => {
+    await setup();
+    const gapInput = screen.getByLabelText('Gap (mm)');
+
+    await fireEvent.changeText(gapInput, '');
+    expect(gapInput.props.value).toBe('');
+
+    await fireEvent.changeText(gapInput, '2');
+    await fireEvent(gapInput, 'blur');
+    expect(gapInput.props.value).toBe('2');
+    expect(readLabelPrefs(getPrinterStorage()).gapMm).toBe(2);
+
+    await fireEvent.changeText(gapInput, 'abc');
+    await fireEvent(gapInput, 'blur');
+    expect(gapInput.props.value).toBe('2');
+    expect(readLabelPrefs(getPrinterStorage()).gapMm).toBe(2);
+  });
+
+  it('lets the operator clear and retype the density field without it snapping back to the default', async () => {
+    await setup();
+    const densityInput = screen.getByLabelText('Densidade');
+
+    await fireEvent.changeText(densityInput, '');
+    expect(densityInput.props.value).toBe('');
+
+    await fireEvent.changeText(densityInput, '5');
+    await fireEvent(densityInput, 'blur');
+    expect(densityInput.props.value).toBe('5');
+    expect(readLabelPrefs(getPrinterStorage()).density).toBe(5);
   });
 });

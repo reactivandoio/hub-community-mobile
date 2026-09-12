@@ -62,8 +62,14 @@ export function CheckinScreen({ slug, engine, printer: printerOverride, printBad
       />
       <View style={styles.toolbar}>
         <TextInput style={styles.search} placeholder="Buscar por nome ou e-mail" value={query} onChangeText={setQuery} autoCorrect={false} />
-        <Button title="Inscrever na hora" onPress={() => router.push(`/checkin/${slug}/walkin` as Href)} />
-        <Button title="Config." color="#888" onPress={() => router.push(`/checkin/${slug}/settings` as Href)} />
+        <View style={styles.toolbarButtons}>
+          <View style={styles.toolbarButton}>
+            <Button title="Inscrever na hora" onPress={() => router.push(`/checkin/${slug}/walkin` as Href)} />
+          </View>
+          <View style={styles.toolbarButton}>
+            <Button title="Config." color="#888" onPress={() => router.push(`/checkin/${slug}/settings` as Href)} />
+          </View>
+        </View>
       </View>
       <FlatList
         data={visible}
@@ -95,7 +101,9 @@ export function CheckinScreen({ slug, engine, printer: printerOverride, printBad
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  toolbar: { flexDirection: 'row', gap: 8, padding: 12, alignItems: 'center' },
-  search: { flex: 1, borderWidth: 1, borderColor: '#ccc', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
+  toolbar: { gap: 8, padding: 12 },
+  toolbarButtons: { flexDirection: 'row', gap: 8 },
+  toolbarButton: { flex: 1 },
+  search: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
   empty: { textAlign: 'center', color: '#666', padding: 24 },
 });

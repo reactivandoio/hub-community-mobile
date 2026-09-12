@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Button, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useCheckinStore, useEventCache } from '@/features/checkin/store-provider';
-import { DEFAULT_LABEL, readLabelPrefs, writeLabelPrefs, type LabelPrefs } from '@/features/printer/printer-prefs';
+import { readLabelPrefs, writeLabelPrefs, type LabelPrefs } from '@/features/printer/printer-prefs';
 import { getPrinterStorage, usePrinter, type PrinterState } from '@/features/printer/use-printer';
 import { EVENT_BATCHES } from '@/lib/queries';
 import type { EventBatchesResponse } from '@/lib/types';
@@ -18,6 +18,8 @@ export function EventSettingsScreen({ slug, printer: printerOverride }: { slug: 
   const printer = printerOverride ?? ownPrinter;
   const { data } = useQuery<EventBatchesResponse>(EVENT_BATCHES, { variables: { slugOrId: slug }, fetchPolicy: 'cache-and-network' });
   const [label, setLabel] = useState<LabelPrefs>(() => readLabelPrefs(getPrinterStorage()));
+  const [gapText, setGapText] = useState(() => String(label.gapMm));
+  const [densityText, setDensityText] = useState(() => String(label.density));
 
   if (!event) return <Text style={styles.warn}>Evento não carregado.</Text>;
   const failed = event.outbox.filter((i) => i.failed);
@@ -29,6 +31,26 @@ export function EventSettingsScreen({ slug, printer: printerOverride }: { slug: 
     const next = { ...label, ...patch };
     setLabel(next);
     writeLabelPrefs(getPrinterStorage(), next);
+  };
+
+  const commitGap = () => {
+    const parsed = Number(gapText);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setGapText(String(label.gapMm));
+      return;
+    }
+    updateLabel({ gapMm: parsed });
+    setGapText(String(parsed));
+  };
+
+  const commitDensity = () => {
+    const parsed = Number(densityText);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setDensityText(String(label.density));
+      return;
+    }
+    updateLabel({ density: parsed });
+    setDensityText(String(parsed));
   };
 
   return (
@@ -61,9 +83,23 @@ export function EventSettingsScreen({ slug, printer: printerOverride }: { slug: 
       })}
       <View style={styles.row}>
         <Text style={styles.meta}>Gap (mm)</Text>
-        <TextInput style={styles.small} keyboardType="numeric" value={String(label.gapMm)} onChangeText={(v) => updateLabel({ gapMm: Number(v) || DEFAULT_LABEL.gapMm })} />
+        <TextInput
+          style={styles.small}
+          keyboardType="numeric"
+          accessibilityLabel="Gap (mm)"
+          value={gapText}
+          onChangeText={setGapText}
+          onBlur={commitGap}
+        />
         <Text style={styles.meta}>Densidade</Text>
-        <TextInput style={styles.small} keyboardType="numeric" value={String(label.density)} onChangeText={(v) => updateLabel({ density: Number(v) || DEFAULT_LABEL.density })} />
+        <TextInput
+          style={styles.small}
+          keyboardType="numeric"
+          accessibilityLabel="Densidade"
+          value={densityText}
+          onChangeText={setDensityText}
+          onBlur={commitDensity}
+        />
       </View>
 
       <Text style={styles.h}>Pendências com erro ({failed.length})</Text>
