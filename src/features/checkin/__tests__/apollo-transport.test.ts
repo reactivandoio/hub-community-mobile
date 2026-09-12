@@ -5,6 +5,18 @@ import { NetworkError } from '../transport';
 const clientWith = (link: ApolloLink) => new ApolloClient({ link, cache: new InMemoryCache({ addTypename: false }) });
 
 describe('createApolloTransport', () => {
+  // `addTypename: false` above is deprecated as of Apollo Client 3.14 and
+  // logs a console.warn on every ApolloClient construction; it is still the
+  // simplest way to keep this suite's mocked link data free of `__typename`.
+  // Silence just that warning so test output stays pristine.
+  let warnSpy: jest.SpyInstance;
+  beforeAll(() => {
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterAll(() => {
+    warnSpy.mockRestore();
+  });
+
   it('maps eventSignups to ServerSignup[] with network-only fetch', async () => {
     const link = new ApolloLink((op) => {
       expect(op.operationName).toBe('EventSignups');

@@ -1,6 +1,7 @@
 import { CheckinStore, MemoryStorage } from '../store';
 import { FakeConnectivity, SyncEngine } from '../sync';
-import { NetworkError, type CheckinTransport } from '../transport';
+import { NetworkError, type CheckinTransport, type MutationResult } from '../transport';
+import type { ServerSignup } from '../types';
 
 const flush = () => new Promise<void>((r) => setImmediate(() => r()));
 
@@ -77,5 +78,75 @@ describe('SyncEngine', () => {
     transport.fetchSignups.mockClear();
     await Promise.all([engine.syncNow(), engine.syncNow()]);
     expect(transport.fetchSignups).toHaveBeenCalledTimes(1);
+  });
+
+  it('pushes a check-in enqueued while the pull is still in flight, without advancing timers', async () => {
+    const { engine, transport, store } = make();
+    let resolveFetch: (value: ServerSignup[]) => void = () => {};
+    transport.fetchSignups.mockImplementationOnce(() => new Promise((resolve) => (resolveFetch = resolve)));
+    engine.start('ev');
+    await flush();
+    expect(transport.checkin).not.toHaveBeenCalled();
+    store.checkIn('ev', 's1');
+    resolveFetch([{ id: 's1', name: 'Ana' }, { id: 's2', name: 'Bia' }]);
+    await flush();
+    expect(transport.checkin).toHaveBeenCalledWith('ev', 's1', expect.any(String));
+  });
+
+  it('pushes an item enqueued mid-run after the outbox snapshot for that run was already taken', async () => {
+    // Stronger regression than the case above: s2 is enqueued *after* the
+    // outbox-processing run has already captured its item list (it is
+    // sitting mid-loop on the deferred checkin below), so only the
+    // growth-triggered follow-up run (not the current one) can push it.
+    // Uses its own store with unique outbox ids (`make()`'s constant `'u'`
+    // id would make the two enqueued items indistinguishable to the store).
+    let nextId = 0;
+    const store = new CheckinStore({ storage: new MemoryStorage(), uuid: () => `id${++nextId}` });
+    store.loadEvent('ev', 'Evento', [{ id: 's1', name: 'Ana' }]);
+    let resolveFirstCheckin: (value: MutationResult) => void = () => {};
+    const transport: jest.Mocked<CheckinTransport> = {
+      fetchSignups: jest.fn().mockResolvedValue([{ id: 's1', name: 'Ana' }, { id: 's2', name: 'Bia' }]),
+      checkin: jest.fn().mockImplementationOnce(() => new Promise((resolve) => (resolveFirstCheckin = resolve))).mockResolvedValue({ success: true }),
+      walkin: jest.fn().mockResolvedValue({ success: true, signup: { id: 's9', name: 'C' } }),
+    };
+    const engine = new SyncEngine({ store, transport, connectivity: new FakeConnectivity(true), pullIntervalMs: 30_000 });
+
+    engine.start('ev');
+    await flush(); // initial pull merges s1+s2; outbox still empty
+    store.checkIn('ev', 's1'); // no run in flight: starts one immediately
+    await flush(); // that run pulls, then blocks inside processOutbox on the deferred checkin('s1')
+    store.checkIn('ev', 's2'); // enqueued after this run's outbox snapshot was taken
+    resolveFirstCheckin({ success: true });
+    await flush();
+    await flush(); // let the pendingRerun follow-up run (fetch + push s2) complete
+    expect(transport.checkin).toHaveBeenCalledWith('ev', 's2', expect.any(String));
+  });
+
+  it('ignores results from a stale run when restarted with a different slug', async () => {
+    const store = new CheckinStore({ storage: new MemoryStorage(), uuid: () => 'u' });
+    store.loadEvent('a', 'Evento A', [{ id: 'a1', name: 'Ana' }]);
+    store.loadEvent('b', 'Evento B', [{ id: 'b1', name: 'Bea' }]);
+    let resolveA: (value: ServerSignup[]) => void = () => {};
+    let resolveB: (value: ServerSignup[]) => void = () => {};
+    const transport: jest.Mocked<CheckinTransport> = {
+      fetchSignups: jest.fn((slug: string) => new Promise<ServerSignup[]>((resolve) => (slug === 'a' ? (resolveA = resolve) : (resolveB = resolve)))),
+      checkin: jest.fn().mockResolvedValue({ success: true }),
+      walkin: jest.fn().mockResolvedValue({ success: true, signup: { id: 's9', name: 'C' } }),
+    };
+    const engine = new SyncEngine({ store, transport, connectivity: new FakeConnectivity(true), pullIntervalMs: 30_000 });
+
+    engine.start('a');
+    await flush();
+    engine.start('b');
+    await flush();
+
+    resolveA([{ id: 'a1', name: 'Ana', checked_in: true }]);
+    resolveB([{ id: 'b1', name: 'Bea', checked_in: true }]);
+    await flush();
+
+    expect(transport.fetchSignups).toHaveBeenCalledWith('b');
+    expect(store.getEvent('a')!.signups.find((s) => s.id === 'a1')!.checked_in).toBe(false);
+    expect(store.getEvent('b')!.signups.find((s) => s.id === 'b1')!.checked_in).toBe(true);
+    expect(engine.getStatus().lastSyncAt).toEqual(expect.any(String));
   });
 });
