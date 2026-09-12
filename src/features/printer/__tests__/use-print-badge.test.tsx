@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button, View } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { usePrintBadge, type PrinterModule } from '../use-print-badge';
+import { usePrintBadge, type BadgeData, type PrinterModule } from '../use-print-badge';
 
 // Hoisted above these imports by babel-jest, so `../use-print-badge` (which
 // imports the native module) never touches the real, absent, native side.
@@ -12,8 +12,14 @@ jest.mock('../../../../modules/tspl-usb-printer', () => ({
   printBitmap: async () => {},
 }));
 
+// The default `waitForFrame` uses requestAnimationFrame/setTimeout so a real
+// device waits for an actual commit+layout pass before capturing (see
+// use-print-badge.tsx). RNTL's `act()` only flushes microtasks and never
+// advances real timers, so every test injects a synchronous stand-in.
+const noWait = async () => {};
+
 function Harness({ module, capture, deviceName }: { module: PrinterModule; capture: () => Promise<string>; deviceName: string | null }) {
-  const { offscreen, print, printing } = usePrintBadge({ deviceName, label: { gapMm: 2, density: 9 }, module, capture });
+  const { offscreen, print, printing } = usePrintBadge({ deviceName, label: { gapMm: 2, density: 9 }, module, capture, waitForFrame: noWait });
   return (
     <View>
       {offscreen}
@@ -39,7 +45,13 @@ describe('usePrintBadge', () => {
     const module: PrinterModule = { printBitmap: jest.fn() };
     let error = '';
     function Probe() {
-      const { offscreen, print } = usePrintBadge({ deviceName: null, label: { gapMm: 3, density: 8 }, module, capture: async () => 'x' });
+      const { offscreen, print } = usePrintBadge({
+        deviceName: null,
+        label: { gapMm: 3, density: 8 },
+        module,
+        capture: async () => 'x',
+        waitForFrame: noWait,
+      });
       return (
         <View>
           {offscreen}
@@ -53,5 +65,42 @@ describe('usePrintBadge', () => {
     });
     expect(error).toBe('Nenhuma impressora selecionada.');
     expect(module.printBitmap).not.toHaveBeenCalled();
+  });
+
+  it('rejects a second print issued before the first one finishes', async () => {
+    const module: PrinterModule = { printBitmap: jest.fn().mockResolvedValue(undefined) };
+    const capture = jest.fn().mockResolvedValue('PNGBASE64');
+    let secondError = '';
+    const first: BadgeData = { fullName: 'Ana', logoText: 'REACT', link: 'https://x.io' };
+    const second: BadgeData = { fullName: 'Bob', logoText: 'REACT', link: 'https://x.io' };
+
+    function DoublePrintHarness() {
+      const { offscreen, print } = usePrintBadge({
+        deviceName: '/dev/p',
+        label: { gapMm: 2, density: 9 },
+        module,
+        capture,
+        waitForFrame: noWait,
+      });
+      const onPress = () => {
+        void print(first);
+        void print(second).catch((e: Error) => {
+          secondError = e.message;
+        });
+      };
+      return (
+        <View>
+          {offscreen}
+          <Button title="print-twice" onPress={onPress} />
+        </View>
+      );
+    }
+
+    await render(<DoublePrintHarness />);
+    await act(async () => {
+      fireEvent.press(screen.getByText('print-twice'));
+    });
+    expect(secondError).toBe('Já existe uma impressão em andamento.');
+    expect(module.printBitmap).toHaveBeenCalledTimes(1);
   });
 });

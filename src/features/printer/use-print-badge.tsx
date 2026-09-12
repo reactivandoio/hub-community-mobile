@@ -22,11 +22,15 @@ type Capture = (ref: RefObject<View | null>) => Promise<string>;
 const defaultCapture: Capture = (ref) =>
   captureRef(ref, { format: 'png', quality: 1, result: 'base64', width: BADGE_DOTS.width + 4, height: BADGE_DOTS.height });
 
-// Waits for React to commit the offscreen badge's new props to the native
-// view tree before capturing it. A microtask tick is enough for that commit
-// to land and, unlike requestAnimationFrame/setTimeout, resolves inside
-// RNTL's `act()` (which flushes microtasks but doesn't advance real timers).
-const nextFrame = () => Promise.resolve();
+// Waits for a real UI frame so React's commit (Fabric) and the native layout
+// pass it triggers across the JS/UI-thread bridge have actually landed before
+// `capture` reads the native view. requestAnimationFrame ties this to frame
+// timing; setTimeout(0) is only a fallback for environments without it.
+const defaultWaitForFrame = () =>
+  new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+    else setTimeout(resolve, 0);
+  });
 
 /**
  * Renders the badge offscreen at print resolution, captures it as PNG and sends
@@ -37,34 +41,42 @@ export function usePrintBadge({
   label,
   module = Printer,
   capture = defaultCapture,
+  waitForFrame = defaultWaitForFrame,
 }: {
   deviceName: string | null;
   label: LabelPrefs;
   module?: PrinterModule;
   capture?: Capture;
+  waitForFrame?: () => Promise<void>;
 }) {
   const ref = useRef<View>(null);
   const [data, setData] = useState<BadgeData>({ fullName: '', logoText: '', link: '' });
   const [printing, setPrinting] = useState(false);
+  // `printing` (state) drives the UI; this ref is the actual mutex. State
+  // updates aren't visible to a `print` call issued before the next render,
+  // so two rapid calls would both read `printing === false` and proceed.
+  const inFlight = useRef(false);
 
   const print = useCallback(
     async (badge: BadgeData) => {
       if (!deviceName) throw new Error('Nenhuma impressora selecionada.');
-      if (printing) throw new Error('Já existe uma impressão em andamento.');
+      if (inFlight.current) throw new Error('Já existe uma impressão em andamento.');
+      inFlight.current = true;
       setPrinting(true);
       try {
         setData(badge);
-        await nextFrame();
-        await nextFrame();
+        await waitForFrame();
+        await waitForFrame();
         const png = await capture(ref);
         await module.printBitmap(deviceName, png, { gapMm: label.gapMm, density: label.density });
       } catch (e) {
         throw new Error(friendlyPrinterError(e));
       } finally {
+        inFlight.current = false;
         setPrinting(false);
       }
     },
-    [deviceName, printing, capture, module, label.gapMm, label.density],
+    [deviceName, capture, module, label.gapMm, label.density, waitForFrame],
   );
 
   const offscreen: ReactElement = (
