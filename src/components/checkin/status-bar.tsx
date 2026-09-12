@@ -24,7 +24,9 @@ export function StatusBar({ online, syncing, pending, failed, lastSyncAt, lastEr
       </View>
       <View style={styles.row}>
         <Text style={styles.meta}>{syncing ? 'Sincronizando...' : lastSyncAt ? `Sincronizado às ${hhmm(lastSyncAt)}` : 'Ainda não sincronizado'}</Text>
-        <Button title="Sincronizar agora" onPress={onSync} disabled={!online || syncing} />
+        {/* Never gated on `online`: the manual button is the operator's way
+            out when NetInfo misreports a restricted venue network. */}
+        <Button title="Sincronizar agora" onPress={onSync} disabled={syncing} />
       </View>
       {lastError ? <Text style={styles.error}>{lastError}</Text> : null}
     </View>

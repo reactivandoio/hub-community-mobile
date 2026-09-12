@@ -26,5 +26,6 @@ export function useEventSync(slug: string, engineOverride?: SyncEngine): SyncSta
     (cb) => engine.subscribe(cb),
     () => engine.getStatus(),
   );
-  return { ...status, syncNow: () => engine.syncNow() };
+  // The manual button forces the run even when NetInfo says offline (#6).
+  return { ...status, syncNow: () => engine.syncNow({ force: true }) };
 }

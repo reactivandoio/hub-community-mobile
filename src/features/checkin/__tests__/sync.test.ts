@@ -50,6 +50,19 @@ describe('SyncEngine', () => {
     expect(store.getEvent('ev')!.outbox).toEqual([]);
   });
 
+  it('syncNow({ force: true }) attempts the run even while connectivity reports offline', async () => {
+    const { engine, transport, store } = make(false);
+    store.checkIn('ev', 's1');
+    engine.start('ev');
+    await flush();
+    await engine.syncNow();
+    expect(transport.fetchSignups).not.toHaveBeenCalled();
+    await engine.syncNow({ force: true });
+    expect(transport.fetchSignups).toHaveBeenCalledTimes(1);
+    expect(transport.checkin).toHaveBeenCalledTimes(1);
+    expect(engine.getStatus().lastSyncAt).toEqual(expect.any(String));
+  });
+
   it('pushes new outbox items as they are enqueued', async () => {
     const { engine, transport, store } = make();
     engine.start('ev');

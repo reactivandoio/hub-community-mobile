@@ -39,6 +39,7 @@ describe('CheckinScreen', () => {
     expect(screen.getByText('José Ção')).toBeTruthy();
     expect(screen.getByText('Bia')).toBeTruthy();
     expect(screen.getByText(/offline/i)).toBeTruthy();
+    expect(screen.getByText('Sincronizar agora')).not.toBeDisabled();
     await fireEvent.changeText(screen.getByPlaceholderText('Buscar por nome ou e-mail'), 'cao');
     expect(screen.queryByText('Bia')).toBeNull();
     expect(screen.getByText('José Ção')).toBeTruthy();

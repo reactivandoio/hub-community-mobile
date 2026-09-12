@@ -126,9 +126,16 @@ export class SyncEngine {
     return () => this.listeners.delete(listener);
   }
 
-  syncNow(): Promise<void> {
+  /**
+   * Pull + push now. `force` skips the connectivity check (manual
+   * "Sincronizar agora"): NetInfo can misreport restricted venue networks, so
+   * the request itself is the test — it fails fast into NetworkError if the
+   * BFF really is unreachable. The automatic interval/reconnect runs keep the
+   * check.
+   */
+  syncNow({ force = false }: { force?: boolean } = {}): Promise<void> {
     if (!this.running) {
-      const runPromise: Promise<void> = this.run().finally(() => {
+      const runPromise: Promise<void> = this.run({ force }).finally(() => {
         // A stop()/start() may have already replaced `running` with a newer
         // run; only the run that is still the current one may clear it or
         // act on `pendingRerun` (otherwise we'd swallow a pending follow-up
@@ -145,12 +152,12 @@ export class SyncEngine {
     return this.running;
   }
 
-  private async run() {
+  private async run({ force }: { force: boolean }) {
     const { store, transport, connectivity, now } = this.deps;
     const slug = this.slug;
     const generation = this.generation;
     const isCurrent = () => this.generation === generation;
-    if (!slug || !connectivity.isOnline()) return;
+    if (!slug || (!force && !connectivity.isOnline())) return;
     this.setStatus({ syncing: true });
     try {
       const server = await transport.fetchSignups(slug);
