@@ -133,9 +133,12 @@ class TsplUsbPrinterModule : Module() {
       var offset = 0
       while (offset < data.size) {
         val len = minOf(CHUNK_SIZE, data.size - offset)
-        val chunk = data.copyOfRange(offset, offset + len)
-        val sent = connection.bulkTransfer(endpoint, chunk, len, WRITE_TIMEOUT_MS)
+        // Offset overload (API 18+): no per-chunk copy of the raster.
+        val sent = connection.bulkTransfer(endpoint, data, offset, len, WRITE_TIMEOUT_MS)
         if (sent < 0) throw PrinterError("USB write failed at byte $offset of ${data.size}")
+        // 0 bytes accepted within the timeout: the printer stalled (buffer
+        // full, paper out, half-unplugged). Looping would spin forever.
+        if (sent == 0) throw PrinterError("USB write stalled at byte $offset of ${data.size}")
         offset += sent
       }
     } finally {
