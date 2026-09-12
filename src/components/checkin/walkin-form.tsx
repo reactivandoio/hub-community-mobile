@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Button, StyleSheet, Text, TextInput, View } from 'react-native';
 import { normalize } from '@/features/checkin/merge';
 import { useCheckinStore, useEventCache } from '@/features/checkin/store-provider';
@@ -30,11 +30,18 @@ export function WalkinForm({ slug, printer: printerOverride, printBadge: printOv
   const [existingId, setExistingId] = useState<string | null>(null);
   const [savedWithoutBadge, setSavedWithoutBadge] = useState<{ id: string; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // `busy` (state) only disables the button after React commits a re-render,
+  // so two `onPress` calls arriving in the same tick would both pass the
+  // `disabled` guard. This ref is the actual re-entrancy mutex, checked and
+  // set synchronously before any store mutation (same pattern as
+  // `use-print-badge.tsx`'s `inFlight` ref).
+  const submitting = useRef(false);
 
   if (!event) return <Text style={styles.error}>Evento não carregado.</Text>;
   const noBatch = !event.settings.batchId;
 
   const submit = async () => {
+    if (submitting.current) return;
     setError(null);
     setExistingId(null);
     const cleanName = name.trim();
@@ -46,6 +53,7 @@ export function WalkinForm({ slug, printer: printerOverride, printBadge: printOv
       setExistingId(existing.id);
       return setError('Este e-mail já está inscrito');
     }
+    submitting.current = true;
     setBusy(true);
     const created = store.addWalkin(slug, { name: cleanName, email: cleanEmail, phone_number: phone.trim() || undefined });
     try {
@@ -57,6 +65,7 @@ export function WalkinForm({ slug, printer: printerOverride, printBadge: printOv
       store.checkIn(slug, created.id);
       setSavedWithoutBadge({ id: created.id, message: (e as Error).message });
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };

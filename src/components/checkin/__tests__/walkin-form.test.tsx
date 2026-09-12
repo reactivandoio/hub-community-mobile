@@ -27,6 +27,28 @@ const fill = async (name: string, email: string) => {
   await fireEvent.changeText(screen.getByPlaceholderText('E-mail'), email);
 };
 
+// `fireEvent.press` wraps every call in its own `act()`; firing it twice
+// without awaiting the first overlaps two act() scopes and RNTL warns
+// ("overlapping act() calls"). To simulate two native touch events landing
+// in the same tick without that harness noise, climb the underlying fiber
+// tree (same lookup `fireEvent` itself falls back to) to grab the real
+// `onPress` handler once, then invoke it twice back-to-back inside a single
+// `act()`.
+interface FiberLike {
+  memoizedProps?: Record<string, unknown>;
+  return: FiberLike | null;
+}
+
+const findOnPress = (instance: ReturnType<typeof screen.getByText>): (() => void) => {
+  let fiber = (instance as unknown as { unstable_fiber?: FiberLike }).unstable_fiber ?? null;
+  while (fiber) {
+    const onPress = fiber.memoizedProps?.onPress;
+    if (typeof onPress === 'function') return onPress as () => void;
+    fiber = fiber.return;
+  }
+  throw new Error('onPress not found');
+};
+
 describe('WalkinForm', () => {
   it('validates required fields', async () => {
     await setup();
@@ -58,6 +80,21 @@ describe('WalkinForm', () => {
     expect(ev.signups.at(-1)).toMatchObject({ id: 'local:u', name: 'Caio Melo', email: 'caio@x.io', phone_number: '62999', checked_in: true, printed_at: expect.any(String) });
     expect(ev.outbox.map((i) => i.kind)).toEqual(['walkin', 'checkin']);
     expect(onDone).toHaveBeenCalledWith('local:u');
+  });
+
+  it('does not create a duplicate signup on a fast double-tap', async () => {
+    const { store, onDone, printBadge } = await setup();
+    await fill('Caio Melo', 'caio@x.io');
+    const press = findOnPress(screen.getByText('Imprimir e inscrever'));
+    await act(async () => {
+      press();
+      press();
+    });
+    const ev = store.getEvent('ev')!;
+    expect(ev.signups.filter((s) => s.id.startsWith('local:'))).toHaveLength(1);
+    expect(ev.outbox.map((i) => i.kind)).toEqual(['walkin', 'checkin']);
+    expect(printBadge).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the signup when printing fails', async () => {
