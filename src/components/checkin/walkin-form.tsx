@@ -5,6 +5,7 @@ import { useCheckinStore, useEventCache } from '@/features/checkin/store-provide
 import { getPrinterStorage, usePrinter, type PrinterState } from '@/features/printer/use-printer';
 import { readLabelPrefs } from '@/features/printer/printer-prefs';
 import { usePrintBadge, type BadgeData } from '@/features/printer/use-print-badge';
+import { NO_PERMISSION_MESSAGE, NO_PRINTER_MESSAGE } from './checkin-sheet';
 
 interface Props {
   slug: string;
@@ -90,7 +91,9 @@ export function WalkinForm({ slug, printer: printerOverride, printBadge: printOv
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {existingId ? <Button title="Ir para o check-in" onPress={() => onDone(existingId)} /> : null}
       <Button title={busy ? 'Imprimindo...' : 'Imprimir e inscrever'} disabled={busy || noBatch} onPress={() => void submit()} />
-      {!printer.ready ? <Text style={styles.warn}>Sem impressora selecionada — a inscrição será salva sem crachá</Text> : null}
+      {!printer.ready ? (
+        <Text style={styles.warn}>{printer.permissionDenied ? NO_PERMISSION_MESSAGE : NO_PRINTER_MESSAGE} — a inscrição será salva sem crachá</Text>
+      ) : null}
     </View>
   );
 }

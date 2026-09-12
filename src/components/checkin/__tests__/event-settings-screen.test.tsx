@@ -33,7 +33,7 @@ const setup = async () => {
   store.checkIn('ev', 's1');
   store.outboxFailed('ev', 'u', 'E-mail inválido', { permanent: true });
   const select = jest.fn().mockResolvedValue(true);
-  const printer: PrinterState = { available: true, devices: [device], selected: null, ready: false, refresh: () => {}, select };
+  const printer: PrinterState = { available: true, devices: [device], selected: null, ready: false, permissionDenied: false, refresh: () => {}, select };
   await render(
     <MockedProvider mocks={mocks}>
       <CheckinStoreProvider store={store}>

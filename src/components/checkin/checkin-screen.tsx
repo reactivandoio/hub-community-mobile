@@ -80,6 +80,7 @@ export function CheckinScreen({ slug, engine, printer: printerOverride, printBad
       <CheckinSheet
         signup={selected}
         printerReady={printer.ready}
+        permissionDenied={printer.permissionDenied}
         printing={ownPrint.printing}
         onPrintAndCheckin={async (s) => {
           await print(badge(s));

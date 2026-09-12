@@ -13,9 +13,11 @@ const mockBack = jest.fn();
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: mockBack }) }));
 jest.mock('../../../../modules/tspl-usb-printer', () => ({ isAvailable: false, listDevices: () => [], requestPermission: async () => false, printBitmap: async () => {} }));
 
-const printer = (ready: boolean): PrinterState => ({ available: true, devices: [], selected: ready ? { deviceName: '/dev/p', vendorId: 1, productId: 1, productName: 'P', manufacturerName: null, hasPermission: true } : null, ready, refresh: () => {}, select: async () => true });
+const device = (hasPermission: boolean) => ({ deviceName: '/dev/p', vendorId: 1, productId: 1, productName: 'P', manufacturerName: null, hasPermission });
+const printer = (ready: boolean): PrinterState => ({ available: true, devices: [], selected: ready ? device(true) : null, ready, permissionDenied: false, refresh: () => {}, select: async () => true });
+const unpermitted: PrinterState = { ...printer(false), devices: [device(false)], selected: device(false), permissionDenied: true };
 
-const setup = async ({ ready = true, printBadge = jest.fn().mockResolvedValue(undefined) } = {}) => {
+const setup = async ({ ready = true, printerState, printBadge = jest.fn().mockResolvedValue(undefined) }: { ready?: boolean; printerState?: PrinterState; printBadge?: jest.Mock } = {}) => {
   const store = new CheckinStore({ storage: new MemoryStorage(), now: () => '2026-09-12T10:00:00.000Z', uuid: () => 'u' });
   store.loadEvent('ev', 'Evento', [
     { id: 's1', name: 'José Ção', email: 'jose@x.io', product_name: 'Lote 1' },
@@ -26,7 +28,7 @@ const setup = async ({ ready = true, printBadge = jest.fn().mockResolvedValue(un
   await render(
     <MockedProvider mocks={[]}>
       <CheckinStoreProvider store={store}>
-        <CheckinScreen slug="ev" engine={engine} printer={printer(ready)} printBadge={printBadge} />
+        <CheckinScreen slug="ev" engine={engine} printer={printerState ?? printer(ready)} printBadge={printBadge} />
       </CheckinStoreProvider>
     </MockedProvider>,
   );
@@ -68,6 +70,15 @@ describe('CheckinScreen', () => {
     expect(store.getEvent('ev')!.signups[0].checked_in).toBe(false);
     await fireEvent.press(screen.getByText('Credenciar sem imprimir'));
     expect(store.getEvent('ev')!.signups[0].checked_in).toBe(true);
+  });
+
+  it('explains a missing USB permission instead of claiming there is no printer', async () => {
+    await setup({ printerState: unpermitted });
+    await fireEvent.press(screen.getByText('José Ção'));
+    expect(screen.getByText('Imprimir e credenciar')).toBeDisabled();
+    expect(screen.getByText('Impressora sem permissão — toque em Selecionar nas configurações')).toBeTruthy();
+    expect(screen.queryByText('Sem impressora selecionada')).toBeNull();
+    expect(screen.getByText('Credenciar sem imprimir')).toBeTruthy();
   });
 
   it('disables printing when no printer is ready and shows reprint for checked-in people', async () => {

@@ -5,6 +5,8 @@ import type { LocalSignup } from '@/features/checkin/types';
 export interface CheckinSheetProps {
   signup: LocalSignup | null;
   printerReady: boolean;
+  /** A printer is attached but lacks USB permission (vs. none attached). */
+  permissionDenied?: boolean;
   printing: boolean;
   onPrintAndCheckin(signup: LocalSignup): Promise<void>;
   onCheckinOnly(signup: LocalSignup): void;
@@ -14,7 +16,10 @@ export interface CheckinSheetProps {
 
 const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-export function CheckinSheet({ signup, printerReady, printing, onPrintAndCheckin, onCheckinOnly, onReprint, onClose }: CheckinSheetProps) {
+export const NO_PERMISSION_MESSAGE = 'Impressora sem permissão — toque em Selecionar nas configurações';
+export const NO_PRINTER_MESSAGE = 'Sem impressora selecionada';
+
+export function CheckinSheet({ signup, printerReady, permissionDenied = false, printing, onPrintAndCheckin, onCheckinOnly, onReprint, onClose }: CheckinSheetProps) {
   const [error, setError] = useState<string | null>(null);
   const close = () => {
     setError(null);
@@ -50,7 +55,7 @@ export function CheckinSheet({ signup, printerReady, printing, onPrintAndCheckin
               ) : null}
             </>
           )}
-          {!printerReady ? <Text style={styles.warn}>Sem impressora selecionada</Text> : null}
+          {!printerReady ? <Text style={styles.warn}>{permissionDenied ? NO_PERMISSION_MESSAGE : NO_PRINTER_MESSAGE}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Button title="Fechar" color="#888" onPress={close} />
         </View>

@@ -7,16 +7,18 @@ import { WalkinForm } from '../walkin-form';
 
 jest.mock('../../../../modules/tspl-usb-printer', () => ({ isAvailable: false, listDevices: () => [], requestPermission: async () => false, printBitmap: async () => {} }));
 
-const printer: PrinterState = { available: true, devices: [], selected: { deviceName: '/dev/p', vendorId: 1, productId: 1, productName: 'P', manufacturerName: null, hasPermission: true }, ready: true, refresh: () => {}, select: async () => true };
+const device = (hasPermission: boolean) => ({ deviceName: '/dev/p', vendorId: 1, productId: 1, productName: 'P', manufacturerName: null, hasPermission });
+const printer: PrinterState = { available: true, devices: [device(true)], selected: device(true), ready: true, permissionDenied: false, refresh: () => {}, select: async () => true };
+const unpermitted: PrinterState = { ...printer, devices: [device(false)], selected: device(false), ready: false, permissionDenied: true };
 
-const setup = async ({ batchId = '7', printBadge = jest.fn().mockResolvedValue(undefined) } = {}) => {
+const setup = async ({ batchId = '7', printerState = printer, printBadge = jest.fn().mockResolvedValue(undefined) }: { batchId?: string; printerState?: PrinterState; printBadge?: jest.Mock } = {}) => {
   const store = new CheckinStore({ storage: new MemoryStorage(), uuid: () => 'u' });
   store.loadEvent('ev', 'Evento', [{ id: 's1', name: 'Ana', email: 'Ana@x.io' }]);
   store.updateSettings('ev', { batchId });
   const onDone = jest.fn();
   await render(
     <CheckinStoreProvider store={store}>
-      <WalkinForm slug="ev" printer={printer} printBadge={printBadge} onDone={onDone} />
+      <WalkinForm slug="ev" printer={printerState} printBadge={printBadge} onDone={onDone} />
     </CheckinStoreProvider>,
   );
   return { store, onDone, printBadge };
@@ -105,6 +107,12 @@ describe('WalkinForm', () => {
     });
     expect(screen.getByText(/crachá não impresso: Impressora desconectada/)).toBeTruthy();
     expect(store.getEvent('ev')!.signups.at(-1)).toMatchObject({ name: 'Caio', checked_in: true });
+  });
+
+  it('explains a missing USB permission', async () => {
+    await setup({ printerState: unpermitted });
+    expect(screen.getByText(/Impressora sem permissão — toque em Selecionar nas configurações/)).toBeTruthy();
+    expect(screen.queryByText(/Sem impressora selecionada/)).toBeNull();
   });
 
   it('blocks when no batch is configured', async () => {
