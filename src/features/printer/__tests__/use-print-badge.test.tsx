@@ -41,6 +41,30 @@ describe('usePrintBadge', () => {
     expect(screen.getByText('imprimir')).toBeTruthy();
   });
 
+  it('reads label prefs through a getter at print time, so a change between prints is honoured', async () => {
+    const module: PrinterModule = { printBitmap: jest.fn().mockResolvedValue(undefined) };
+    let prefs = { gapMm: 2, density: 9 };
+    function GetterHarness() {
+      const { offscreen, print } = usePrintBadge({ deviceName: '/dev/p', label: () => prefs, module, capture: async () => 'PNG', waitForFrame: noWait });
+      return (
+        <View>
+          {offscreen}
+          <Button title="imprimir" onPress={() => void print({ fullName: 'Ana', logoText: 'REACT', link: 'https://x.io' })} />
+        </View>
+      );
+    }
+    await render(<GetterHarness />);
+    await act(async () => {
+      fireEvent.press(screen.getByText('imprimir'));
+    });
+    prefs = { gapMm: 4, density: 12 };
+    await act(async () => {
+      fireEvent.press(screen.getByText('imprimir'));
+    });
+    expect(module.printBitmap).toHaveBeenNthCalledWith(1, '/dev/p', 'PNG', { gapMm: 2, density: 9 });
+    expect(module.printBitmap).toHaveBeenNthCalledWith(2, '/dev/p', 'PNG', { gapMm: 4, density: 12 });
+  });
+
   it('rejects with a friendly message when there is no printer', async () => {
     const module: PrinterModule = { printBitmap: jest.fn() };
     let error = '';

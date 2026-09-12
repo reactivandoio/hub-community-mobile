@@ -14,13 +14,14 @@ interface Props {
 }
 
 const EMAIL = /^\S+@\S+\.\S+$/;
+const currentLabel = () => readLabelPrefs(getPrinterStorage());
 
 export function WalkinForm({ slug, printer: printerOverride, printBadge: printOverride, onDone }: Props) {
   const store = useCheckinStore();
   const event = useEventCache(slug);
   const ownPrinter = usePrinter();
   const printer = printerOverride ?? ownPrinter;
-  const ownPrint = usePrintBadge({ deviceName: printer.selected?.deviceName ?? null, label: readLabelPrefs(getPrinterStorage()) });
+  const ownPrint = usePrintBadge({ deviceName: printer.selected?.deviceName ?? null, label: currentLabel });
   const print = printOverride ?? ownPrint.print;
 
   const [name, setName] = useState('');

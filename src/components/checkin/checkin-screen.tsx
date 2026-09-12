@@ -1,5 +1,5 @@
 import { useRouter, type Href } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Button, FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { matchesSearch } from '@/features/checkin/merge';
 import { useCheckinStore, useEventCache } from '@/features/checkin/store-provider';
@@ -27,8 +27,7 @@ export function CheckinScreen({ slug, engine, printer: printerOverride, printBad
   const router = useRouter();
   const ownPrinter = usePrinter();
   const printer = printerOverride ?? ownPrinter;
-  const label = useMemo(() => readLabelPrefs(getPrinterStorage()), []);
-  const ownPrint = usePrintBadge({ deviceName: printer.selected?.deviceName ?? null, label });
+  const ownPrint = usePrintBadge({ deviceName: printer.selected?.deviceName ?? null, label: currentLabel });
   const print = printOverride ?? ownPrint.print;
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<LocalSignup | null>(null);
@@ -97,6 +96,10 @@ export function CheckinScreen({ slug, engine, printer: printerOverride, printBad
     </View>
   );
 }
+
+// Read at print time (not memoised on mount) so gap/density edited in the
+// settings screen apply to the next badge.
+const currentLabel = () => readLabelPrefs(getPrinterStorage());
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
