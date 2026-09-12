@@ -62,6 +62,9 @@
     "preset": "jest-expo",
     "testMatch": [
       "**/__tests__/**/*.test.{ts,tsx}"
-    ]
+    ],
+    "moduleNameMapper": {
+      "^react-native-mmkv$": "<rootDir>/src/test/mmkv-mock.ts"
+    }
   }
 }
