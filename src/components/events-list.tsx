@@ -1,4 +1,5 @@
 import { useQuery } from '@apollo/client';
+import type { ReactNode } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 import { EVENTS } from '@/lib/queries';
 import type { EventsResponse, EventSummary } from '@/lib/types';
@@ -6,18 +7,19 @@ import type { EventsResponse, EventSummary } from '@/lib/types';
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 
-function EventRow({ event }: { event: EventSummary }) {
+function EventRow({ event, action }: { event: EventSummary; action?: ReactNode }) {
   const place = [event.location?.title, event.location?.city].filter(Boolean).join(' · ');
   return (
     <View style={styles.row}>
       <Text style={styles.title}>{event.title}</Text>
       <Text style={styles.meta}>{formatDate(event.start_date)}</Text>
       {place ? <Text style={styles.meta}>{place}</Text> : null}
+      {action}
     </View>
   );
 }
 
-export function EventsList() {
+export function EventsList({ renderAction }: { renderAction?: (event: EventSummary) => ReactNode }) {
   const { data, loading, error } = useQuery<EventsResponse>(EVENTS, {
     variables: { sort: [{ start_date: 'DESC' }] },
   });
@@ -30,7 +32,7 @@ export function EventsList() {
     <FlatList
       data={events}
       keyExtractor={(event) => event.id}
-      renderItem={({ item }) => <EventRow event={item} />}
+      renderItem={({ item }) => <EventRow event={item} action={renderAction?.(item)} />}
       contentContainerStyle={events.length === 0 ? styles.center : undefined}
       ListEmptyComponent={<Text style={styles.meta}>Nenhum evento encontrado.</Text>}
     />

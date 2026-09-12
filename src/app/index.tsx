@@ -1,16 +1,5 @@
-import { Link } from 'expo-router';
-import { StyleSheet } from 'react-native';
-import { EventsList } from '@/components/events-list';
+import { EventsHome } from '@/components/checkin/events-home';
 
 export default function Index() {
-  return (
-    <>
-      <Link href="/print-test" style={styles.spike}>
-        [spike] teste de impressão USB
-      </Link>
-      <EventsList />
-    </>
-  );
+  return <EventsHome />;
 }
-
-const styles = StyleSheet.create({ spike: { padding: 16, color: '#8B5CF6' } });
