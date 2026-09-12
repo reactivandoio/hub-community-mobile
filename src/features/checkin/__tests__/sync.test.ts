@@ -193,6 +193,29 @@ describe('SyncEngine', () => {
     expect(store.getEvent('ev')!.outbox.map((i) => i.kind === 'checkin' && i.signupId)).toEqual(['s2']);
   });
 
+  it('pushes again when a failed item is retried from the settings screen', async () => {
+    const { engine, transport, store } = make();
+    transport.checkin.mockResolvedValueOnce({ success: false, message: 'Inscrição não encontrada.' });
+    store.checkIn('ev', 's1');
+    engine.start('ev');
+    await flush();
+    expect(store.getEvent('ev')!.outbox[0].failed).toBe(true);
+    store.retryOutboxItem('ev', 'u');
+    await flush();
+    expect(transport.checkin).toHaveBeenCalledTimes(2);
+    expect(store.getEvent('ev')!.outbox).toEqual([]);
+  });
+
+  it('stop() clears the syncing flag of an abandoned run', async () => {
+    const { engine, transport } = make();
+    transport.fetchSignups.mockImplementationOnce(() => new Promise(() => {}));
+    engine.start('ev');
+    await flush();
+    expect(engine.getStatus().syncing).toBe(true);
+    engine.stop();
+    expect(engine.getStatus().syncing).toBe(false);
+  });
+
   it('ignores results from a stale run when restarted with a different slug', async () => {
     const store = new CheckinStore({ storage: new MemoryStorage(), uuid: () => 'u' });
     store.loadEvent('a', 'Evento A', [{ id: 'a1', name: 'Ana' }]);

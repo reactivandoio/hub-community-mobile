@@ -79,7 +79,8 @@ export class SyncEngine {
   private running: Promise<void> | null = null;
   private runningOpts: RunOptions = { pull: true, force: false };
   private pending: RunOptions | null = null;
-  private lastOutboxLength = 0;
+  /** Non-failed outbox items at the last store notification (see `start`). */
+  private lastPendingCount = 0;
   private generation = 0;
   private deps: Required<Deps>;
 
@@ -95,7 +96,7 @@ export class SyncEngine {
   start(slug: string) {
     this.stop();
     this.slug = slug;
-    this.lastOutboxLength = this.deps.store.getEvent(slug)?.outbox.length ?? 0;
+    this.lastPendingCount = this.pendingCount(slug);
     this.timer = setInterval(() => void this.syncNow(), this.deps.pullIntervalMs);
     this.unsubscribers.push(
       this.deps.connectivity.subscribe((online) => {
@@ -103,9 +104,12 @@ export class SyncEngine {
         if (online) void this.syncNow();
       }),
       this.deps.store.subscribe(() => {
-        const len = this.deps.store.getEvent(slug)?.outbox.length ?? 0;
-        const grew = len > this.lastOutboxLength;
-        this.lastOutboxLength = len;
+        // Counting non-failed items (not the outbox length) makes a retry
+        // from the settings screen — which unflags a failed item — count as
+        // growth and get pushed right away.
+        const count = this.pendingCount(slug);
+        const grew = count > this.lastPendingCount;
+        this.lastPendingCount = count;
         if (!grew) return;
         void this.request({ pull: false, force: false });
       }),
@@ -125,6 +129,13 @@ export class SyncEngine {
     this.slug = null;
     this.running = null;
     this.pending = null;
+    // The abandoned run bails out on its generation check without touching
+    // status, so clear the flag it set.
+    if (this.status.syncing) this.setStatus({ syncing: false });
+  }
+
+  private pendingCount(slug: string) {
+    return this.deps.store.getEvent(slug)?.outbox.filter((i) => !i.failed).length ?? 0;
   }
 
   getStatus(): SyncStatus {
