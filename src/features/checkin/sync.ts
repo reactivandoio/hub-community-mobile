@@ -86,9 +86,9 @@ export class SyncEngine {
 
   constructor(deps: Deps) {
     this.deps = {
-      pullIntervalMs: 30_000,
-      now: () => new Date().toISOString(),
       ...deps,
+      pullIntervalMs: deps.pullIntervalMs ?? 30_000,
+      now: deps.now ?? (() => new Date().toISOString()),
     };
     this.status = { online: deps.connectivity.isOnline(), syncing: false };
   }

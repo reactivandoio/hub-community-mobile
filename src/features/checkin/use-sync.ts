@@ -7,15 +7,20 @@ import { SyncEngine, type SyncStatus } from './sync';
 
 let sharedConnectivity: ReturnType<typeof createNetInfoConnectivity> | null = null;
 
+interface Options {
+  /** Overrides the engine's default pull interval (the kiosk polls faster). */
+  pullIntervalMs?: number;
+}
+
 /** Runs a SyncEngine for `slug` while the calling screen is mounted. */
-export function useEventSync(slug: string, engineOverride?: SyncEngine): SyncStatus & { syncNow: () => Promise<void> } {
+export function useEventSync(slug: string, engineOverride?: SyncEngine, { pullIntervalMs }: Options = {}): SyncStatus & { syncNow: () => Promise<void> } {
   const store = useCheckinStore();
   const client = useApolloClient();
   const engine = useMemo(() => {
     if (engineOverride) return engineOverride;
     sharedConnectivity ??= createNetInfoConnectivity();
-    return new SyncEngine({ store, transport: createApolloTransport(client), connectivity: sharedConnectivity });
-  }, [engineOverride, store, client]);
+    return new SyncEngine({ store, transport: createApolloTransport(client), connectivity: sharedConnectivity, pullIntervalMs });
+  }, [engineOverride, store, client, pullIntervalMs]);
 
   useEffect(() => {
     engine.start(slug);

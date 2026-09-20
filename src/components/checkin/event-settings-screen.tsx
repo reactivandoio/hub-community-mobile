@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Button, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useCheckinStore, useEventCache } from '@/features/checkin/store-provider';
+import { signupUrlFor } from '@/features/checkin/ticket';
 import { readLabelPrefs, writeLabelPrefs, type LabelPrefs } from '@/features/printer/printer-prefs';
 import { getPrinterStorage, usePrinter, type PrinterState } from '@/features/printer/use-printer';
 import { EVENT_BATCHES } from '@/lib/queries';
@@ -62,6 +63,18 @@ export function EventSettingsScreen({ slug, printer: printerOverride }: { slug: 
       <Text style={styles.h}>Crachá</Text>
       <TextInput style={styles.input} placeholder="Texto do logo" value={event.settings.logoText} onChangeText={(logoText) => store.updateSettings(slug, { logoText })} />
       <TextInput style={styles.input} placeholder="Link do QR" value={event.settings.link} autoCapitalize="none" onChangeText={(link) => store.updateSettings(slug, { link })} />
+
+      <Text style={styles.h}>Modo totem</Text>
+      <TextInput
+        style={styles.input}
+        placeholder={signupUrlFor({ slug, settings: { ...event.settings, signupUrl: '' } })}
+        value={event.settings.signupUrl ?? ''}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="url"
+        onChangeText={(signupUrl) => store.updateSettings(slug, { signupUrl })}
+      />
+      <Text style={styles.meta}>Link de inscrição mostrado como QR no totem. Vazio usa a página do evento.</Text>
 
       <Text style={styles.h}>Lote para inscrição na hora</Text>
       {batches.length === 0 ? <Text style={styles.meta}>Nenhum lote habilitado (ou sem conexão para listar).</Text> : null}

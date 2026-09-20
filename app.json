@@ -35,7 +35,13 @@
           "imageWidth": 76
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "O HubCommunity usa a câmera para ler o QR code da sua inscrição no credenciamento."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
