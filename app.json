@@ -41,7 +41,8 @@
         {
           "cameraPermission": "O HubCommunity usa a câmera para ler o QR code da sua inscrição no credenciamento."
         }
-      ]
+      ],
+      "./plugins/with-usb-host"
     ],
     "experiments": {
       "typedRoutes": true,
