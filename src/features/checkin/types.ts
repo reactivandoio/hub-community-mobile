@@ -62,6 +62,8 @@ export interface EventSettings {
   logoText: string;
   link: string;
   batchId: string;
+  /** Kiosk "not signed up yet" QR; empty → default signup page (see `signupUrlFor`). */
+  signupUrl?: string;
 }
 export const DEFAULT_SETTINGS: EventSettings = {
   logoText: 'COMUNIDADE',

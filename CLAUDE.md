@@ -26,3 +26,9 @@ Expo SDK 57 (React Native 0.86, React 19.2), expo-router with `src/app`, TypeScr
 - Printing: `modules/tspl-usb-printer` (Kotlin, USB Host + TSPL) — Android dev build only (`pnpm android`). `usePrintBadge` renders `BadgeLabel` offscreen, captures PNG with view-shot and sends it as a 1bpp `BITMAP`.
 - Tests that import printer hooks must `jest.mock('../../../../modules/tspl-usb-printer', ...)`.
 - `modules/**/android/build` is git-ignored (native build output); a native rebuild (`pnpm android`) is required whenever native dependencies change, since it isn't produced by `pnpm start`/Metro alone.
+
+## Kiosk mode (`src/features/kiosk`, `src/components/kiosk`)
+- Spec: `docs/superpowers/specs/2026-09-18-kiosk-mode-design.md`. Route `checkin/[slug]/kiosk`, entered from the operator screen ("Modo totem"); hidden exit is a 2 s long-press on the top-left corner.
+- Ticket QR contract (shared with the web, `hub-community-frontend/src/lib/ticket.ts`): `https://hubcommunity.io/events/<slug>/signup?ticket=<signupId>`; `parseTicket` in `src/features/checkin/ticket.ts` also accepts a bare id.
+- `useKioskFlow` is the state machine (scan skips confirmation, name search requires it; a cache miss runs `syncNow()` once before "not found"). It takes every side effect by injection — test it with fakes, not the store.
+- `expo-camera` (front camera, QR only) and `expo-keep-awake` are native: `pnpm android` after pulling. Tests mock both (`CameraView` exposes `onBarcodeScanned` so a test can "show" a QR).

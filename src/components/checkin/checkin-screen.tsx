@@ -79,6 +79,9 @@ export function CheckinScreen({ slug, select, selectKey = select, engine, printe
             <Button title="Inscrever na hora" onPress={() => router.push(`/checkin/${slug}/walkin` as Href)} />
           </View>
           <View style={styles.toolbarButton}>
+            <Button title="Modo totem" color="#5b21b6" onPress={() => router.push(`/checkin/${slug}/kiosk` as Href)} />
+          </View>
+          <View style={styles.toolbarButton}>
             <Button title="Config." color="#888" onPress={() => router.push(`/checkin/${slug}/settings` as Href)} />
           </View>
         </View>
