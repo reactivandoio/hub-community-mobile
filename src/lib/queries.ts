@@ -1,9 +1,13 @@
 // All GraphQL operations live here (same convention as the web frontend).
 import { gql } from '@apollo/client';
 
+// The app is the operator's tool at the door, so it lists the unlisted events
+// too: `unlisted` hides an event from the public site, not from whoever is
+// running the check-in — and without it in this list there is no way to open
+// the event, let alone put it in kiosk mode.
 export const EVENTS = gql`
   query Events($sort: [EventSort]) {
-    events(sort: $sort) {
+    events(sort: $sort, include_unlisted: true) {
       data {
         id
         documentId
