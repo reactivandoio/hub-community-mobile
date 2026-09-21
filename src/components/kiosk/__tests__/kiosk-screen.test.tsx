@@ -16,16 +16,13 @@ jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: mock
 jest.mock('expo-keep-awake', () => ({ useKeepAwake: () => {} }));
 jest.mock('../../../../modules/tspl-usb-printer', () => ({ isAvailable: false, listDevices: () => [], requestPermission: async () => false, printBitmap: async () => {} }));
 
-// The camera mock exposes the latest `onBarcodeScanned` so tests can "show" a QR.
-const mockCamera: { scan?: (r: { data: string; type: string }) => void; granted: boolean; request: jest.Mock } = { granted: true, request: jest.fn() };
-jest.mock('expo-camera', () => ({
-  CameraView: (props: { onBarcodeScanned?: (r: { data: string; type: string }) => void }) => {
-    mockCamera.scan = props.onBarcodeScanned;
-    return null;
-  },
-  useCameraPermissions: () => [{ granted: mockCamera.granted }, mockCamera.request],
-}));
-const showQr = (data: string) => act(async () => mockCamera.scan?.({ data, type: 'qr' }));
+// The totem's barcode reader is a keyboard: it types the payload into the
+// focused field and presses Enter. That is what a scan looks like here.
+const field = () => screen.getByPlaceholderText('Seu nome');
+const showQr = async (data: string) => {
+  await act(async () => fireEvent.changeText(field(), data));
+  await act(async () => fireEvent(field(), 'submitEditing'));
+};
 
 const device = { deviceName: '/dev/p', vendorId: 1, productId: 1, productName: 'P', manufacturerName: null, hasPermission: true };
 const printer = (ready: boolean): PrinterState => ({ available: true, devices: [], selected: ready ? device : null, ready, permissionDenied: false, refresh: () => {}, select: async () => true });
@@ -52,18 +49,41 @@ const setup = async ({ ready = true, printBadge = jest.fn().mockResolvedValue(un
   return { store, printBadge, syncNow };
 };
 
-beforeEach(() => {
-  mockCamera.scan = undefined;
-  mockCamera.granted = true;
-});
-
 describe('KioskScreen', () => {
-  it('shows the event, the camera prompt and the signup QR', async () => {
+  it('shows the name field and the signup QR, with no chrome around them', async () => {
     await setup();
-    expect(screen.getByText('Meetup')).toBeTruthy();
-    expect(screen.getByText('Aproxime o QR code da sua inscrição')).toBeTruthy();
+    expect(screen.getByText('Digite seu nome para retirar o crachá')).toBeTruthy();
     expect(screen.getByText('Ainda não se inscreveu?')).toBeTruthy();
-    expect(mockCamera.scan).toBeDefined();
+    // No header: the totem is for the attendee, who does not need the event
+    // name, and everything has to fit one screen without scrolling.
+    expect(screen.queryByText('Meetup')).toBeNull();
+  });
+
+  it('says so when no signup is cached, instead of answering every search with "not found"', async () => {
+    const store = new CheckinStore({ storage: new MemoryStorage(), now: () => '2026-09-18T10:00:00.000Z', uuid: () => 'u' });
+    store.loadEvent('ev', 'Meetup', []);
+    const transport: CheckinTransport = { fetchSignups: async () => [], checkin: async () => ({ success: true }), walkin: async () => ({ success: true }) };
+    const engine = new SyncEngine({ store, transport, connectivity: new FakeConnectivity(true) });
+    await render(
+      <MockedProvider mocks={[]}>
+        <CheckinStoreProvider store={store}>
+          <KioskScreen slug="ev" engine={engine} printer={printer(true)} printBadge={jest.fn()} resetAfterMs={60_000} />
+        </CheckinStoreProvider>
+      </MockedProvider>,
+    );
+
+    expect(screen.getByText(/Nenhum inscrito carregado neste aparelho/)).toBeTruthy();
+  });
+
+  it('hides the signup QR while someone types, so the keyboard does not bury the results', async () => {
+    await setup();
+    expect(screen.getByText('Ainda não se inscreveu?')).toBeTruthy();
+
+    await act(async () => fireEvent(field(), 'focus'));
+    expect(screen.queryByText('Ainda não se inscreveu?')).toBeNull();
+
+    await act(async () => fireEvent(field(), 'blur'));
+    expect(screen.getByText('Ainda não se inscreveu?')).toBeTruthy();
   });
 
   it('scanning a ticket prints, checks in and welcomes the person without confirmation', async () => {
@@ -73,10 +93,11 @@ describe('KioskScreen', () => {
     expect(store.getEvent('ev')!.signups[0]).toMatchObject({ checked_in: true, printed_at: '2026-09-18T10:00:00.000Z' });
     expect(screen.getByText('José!')).toBeTruthy();
     expect(screen.getByText('Retire seu crachá na impressora.')).toBeTruthy();
-    // The camera stops feeding scans while the welcome screen is up.
-    expect(mockCamera.scan).toBeUndefined();
+    // The field stops taking input while the welcome screen is up, so the next
+    // person in the queue cannot scan over someone else's badge.
+    expect(field()).toBeDisabled();
     await fireEvent.press(screen.getByText('Próximo'));
-    expect(mockCamera.scan).toBeDefined();
+    expect(field()).not.toBeDisabled();
   });
 
   it('name search needs two characters, masks e-mails and asks for confirmation', async () => {
@@ -131,16 +152,6 @@ describe('KioskScreen', () => {
     await showQr('https://hubcommunity.io/events/ev/signup?ticket=s9');
     expect(store.getEvent('ev')!.signups.find((s) => s.id === 's9')).toMatchObject({ checked_in: true });
     expect(screen.getByText('Novo!')).toBeTruthy();
-  });
-
-  it('offers to enable the camera and keeps the search working without it', async () => {
-    mockCamera.granted = false;
-    await setup();
-    expect(mockCamera.scan).toBeUndefined();
-    await fireEvent.press(screen.getByText('Permitir câmera'));
-    expect(mockCamera.request).toHaveBeenCalled();
-    await fireEvent.changeText(screen.getByPlaceholderText('Seu nome'), 'bia');
-    expect(screen.getByText('Bia')).toBeTruthy();
   });
 
   it('leaves the kiosk only through the hidden long-press plus confirmation', async () => {
