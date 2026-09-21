@@ -32,18 +32,25 @@ Expo SDK 57 (React Native 0.86, React 19.2), expo-router with `src/app`, TypeScr
   from the operator screen ("Modo totem"). No header, no scrolling: it all fits one screen. Hidden exit
   is a 2 s long-press on the whole "Ainda não se inscreveu?" card (its children are `pointerEvents="none"`
   — the QR is an SVG and was swallowing the gesture).
-- **There is no scanner in the kiosk today; it credentials by name.** On the Gertec SK-210 (MediaTek,
-  Android 13) neither input the hardware advertises works:
-  - `expo-camera` opens either lens, CameraX reports no error, and the preview stays black. Ruled out:
-    the rounded `overflow: 'hidden'` frame, a stale camera held by another app, fresh permissions, both
-    lenses, and `PreviewView` in TextureView mode (`patches/expo-camera@57.0.5.patch`, kept for whoever
-    picks this up). CameraX 1.6 is camera-pipe all the way down — `camera-camera2` there is an adapter
-    over it, so excluding the pipe throws `NoClassDefFoundError`; pinning the group to 1.4.2 builds but
-    the camera never opens at all.
-  - The device's own barcode reader (`com.android.scanneraskeyboard`, which types what it scans) does not
-    pick up a QR, though the spec claims 1D+2D. The vendor path not yet tried is the Topwise AIDL SDK
-    behind `com.android.topwise.topusdkservice`.
-  - The stock `com.mediatek.camera` app previews fine, so the hardware is capable — the gap is CameraX.
+- **The scanner is the totem's own, not CameraX** (`modules/topwise-scanner`). On the Gertec SK-210
+  `expo-camera` opens either lens, CameraX reports no error and the preview stays black, while the
+  stock camera app works — so the gap is CameraX. The device is a rebadged Topwise CloudPOS, and its
+  service drives the camera itself.
+  - The AIDL under `modules/topwise-scanner/android/src/main/aidl` was recovered from
+    `/system/app/TOPUSDKService/TOPUSDKService.apk`, pulled off the device: the `TRANSACTION_*`
+    constants in each `$Stub` give the declaration order, which is what AIDL numbers methods by —
+    `dexdump` lists them alphabetically, so trusting that order would have produced a wrong wire
+    protocol that still compiled.
+  - `TopwiseScannerView` is the one the kiosk uses: `startDecode` in `MODE_CONTINUE_SCAN_CODE` streams
+    `onResult` plus raw NV21 frames through `onPreview`, so the preview lives inside our layout.
+    Frames are throttled to ~10 fps (each costs a YUV→JPEG→Bitmap round trip on a 2 GB device).
+  - `scan()` is the other entry point: the vendor's own full-screen reader. It needs
+    `getSerializable("scanCode")` holding a real `com.topwise.cloudpos.data.AidlScanParam` — an empty
+    Bundle is refused with ERROR_INPUT_PARAMS (109007). That class declares no serialVersionUID, so it
+    is loaded from the service's APK through `createPackageContext` rather than copied.
+  - Always end a session (`stopScan`/`stopDecode`): the service keeps an `isScanIng` flag and holds the
+    camera, so without it the first read works and every one after comes up black.
+  - `isAvailable()` is false on the operators' phones, and the kiosk falls back to name search there.
 - `parseTicket` (`src/features/checkin/ticket.ts`) still accepts the ticket URL or a bare id, so whichever
   scanner path lands can feed the same flow.
 - `useKioskFlow` is the state machine (scan skips confirmation, name search requires it; a cache miss runs
