@@ -13,6 +13,8 @@ import { useKioskFlow } from '@/features/kiosk/use-kiosk-flow';
 import { readLabelPrefs } from '@/features/printer/printer-prefs';
 import { usePrintBadge, type BadgeData } from '@/features/printer/use-print-badge';
 import { getPrinterStorage, usePrinter, type PrinterState } from '@/features/printer/use-printer';
+import * as topwiseScanner from '../../../modules/topwise-scanner';
+import { ScannerView } from '../../../modules/topwise-scanner';
 import { KioskOverlay } from './kiosk-overlay';
 
 interface Props {
@@ -43,6 +45,8 @@ export function KioskScreen({ slug, engine, printer: printerOverride, printBadge
   const [query, setQuery] = useState('');
   const [typing, setTyping] = useState(false);
   const inputRef = useRef<TextInput>(null);
+  // The totem's own scanner service; absent on the operators' phones.
+  const [scannerAvailable] = useState(() => topwiseScanner.isAvailable());
 
   const flow = useKioskFlow({
     findSignup: (id) => store.getEvent(slug)?.signups.find((s) => s.id === id),
@@ -107,6 +111,19 @@ export function KioskScreen({ slug, engine, printer: printerOverride, printBadge
               built-in reader does not pick up a QR. Until one of them is
               solved, the totem credentials people by name — so the field is the
               screen, not an afterthought under a dead black rectangle. */}
+          {scannerAvailable && ScannerView && !typing ? (
+            <View style={styles.card}>
+              <Text style={styles.h}>Aproxime o QR code da sua inscrição</Text>
+              <ScannerView
+                style={styles.cameraFrame}
+                // Stop acting on reads while a check-in is on screen, so the next
+                // person in the queue cannot scan over someone else's badge.
+                paused={!idle}
+                onScanned={({ nativeEvent }) => submitTicket(nativeEvent.payload)}
+              />
+            </View>
+          ) : null}
+
           <View style={[styles.card, styles.searchCard]}>
             <Text style={styles.h}>Digite seu nome para retirar o crachá</Text>
             <TextInput
@@ -207,6 +224,7 @@ const styles = StyleSheet.create({
   columnSide: { flex: 2 },
   card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, gap: 10 },
   searchCard: { flex: 1 },
+  cameraFrame: { width: 280, height: 210, alignSelf: 'center', borderRadius: 12, backgroundColor: '#18181b' },
   results: { flexGrow: 0 },
   signupCard: { alignItems: 'center' },
   signupInner: { alignItems: 'center', gap: 10 },
