@@ -1,0 +1,17 @@
+diff --git a/android/src/main/java/expo/modules/camera/ExpoCameraView.kt b/android/src/main/java/expo/modules/camera/ExpoCameraView.kt
+index 999a22c6a679042e144acb6caa764c9929103966..08e850e25bb31152e7b0c88b158d4ab1cd3d1594 100644
+--- a/android/src/main/java/expo/modules/camera/ExpoCameraView.kt
++++ b/android/src/main/java/expo/modules/camera/ExpoCameraView.kt
+@@ -135,6 +135,12 @@ class ExpoCameraView(
+ 
+   private var previewView = PreviewView(context).apply {
+     elevation = 0f
++    // COMPATIBLE renders the preview into a TextureView instead of the default
++    // SurfaceView. On the Gertec SK-210 (MediaTek, Android 13) the SurfaceView
++    // path never composites: the camera opens, CameraX reports no error, and
++    // the preview is a black rectangle. A TextureView costs a little memory
++    // and draws correctly there.
++    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+   }
+   private val scope = CoroutineScope(
+     Dispatchers.Main + SupervisorJob() + CoroutineExceptionHandler { _, throwable ->

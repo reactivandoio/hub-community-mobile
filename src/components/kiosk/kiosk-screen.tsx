@@ -1,13 +1,12 @@
-import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Button, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { matchesSearch } from '@/features/checkin/merge';
 import { useCheckinStore, useEventCache } from '@/features/checkin/store-provider';
 import type { SyncEngine } from '@/features/checkin/sync';
-import { signupUrlFor } from '@/features/checkin/ticket';
+import { parseTicket, signupUrlFor } from '@/features/checkin/ticket';
 import type { LocalSignup } from '@/features/checkin/types';
 import { useEventSync } from '@/features/checkin/use-sync';
 import { useKioskFlow } from '@/features/kiosk/use-kiosk-flow';
@@ -41,8 +40,9 @@ export function KioskScreen({ slug, engine, printer: printerOverride, printBadge
   const printer = printerOverride ?? ownPrinter;
   const ownPrint = usePrintBadge({ deviceName: printer.selected?.deviceName ?? null, label: currentLabel });
   const print = printOverride ?? ownPrint.print;
-  const [permission, requestPermission] = useCameraPermissions();
   const [query, setQuery] = useState('');
+  const [typing, setTyping] = useState(false);
+  const inputRef = useRef<TextInput>(null);
 
   const flow = useKioskFlow({
     findSignup: (id) => store.getEvent(slug)?.signups.find((s) => s.id === id),
@@ -72,7 +72,25 @@ export function KioskScreen({ slug, engine, printer: printerOverride, printBadge
     flow.select(s);
     setQuery('');
   };
-  const onScan = ({ data }: BarcodeScanningResult) => flow.scan(data);
+  // The totem's barcode reader behaves as a keyboard: it types what it scans
+  // into whatever field has focus. A ticket URL can only have come from it —
+  // nobody types `https://…?ticket=…` by hand — so it checks the person in at
+  // once. Anything else is a name being typed, and Enter (which the reader
+  // sends after a scan) settles the ambiguous case of a bare id.
+  const submitTicket = (payload: string) => {
+    setQuery('');
+    flow.scan(payload);
+  };
+
+  const onType = (text: string) => {
+    setQuery(text);
+    if (/:\/\//.test(text) && parseTicket(text)) submitTicket(text);
+  };
+
+  const onSubmit = () => {
+    if (parseTicket(query)) submitTicket(query);
+  };
+
   const confirmExit = () =>
     Alert.alert('Sair do modo totem?', 'A tela do operador volta a aparecer.', [
       { text: 'Cancelar', style: 'cancel' },
@@ -82,55 +100,45 @@ export function KioskScreen({ slug, engine, printer: printerOverride, printBadge
   return (
     <View style={styles.screen}>
       {ownPrint.offscreen}
-      <View style={styles.header}>
-        {/* Hidden exit: hold the top-left corner for two seconds. */}
-        <Pressable accessibilityLabel="Sair do modo totem" onLongPress={confirmExit} delayLongPress={2000} style={styles.exitZone} />
-        <Text style={styles.title} numberOfLines={1}>
-          {event.title}
-        </Text>
-        <Text style={styles.subtitle}>Credenciamento</Text>
-      </View>
-
-      <ScrollView contentContainerStyle={[styles.body, landscape && styles.bodyRow]} keyboardShouldPersistTaps="handled">
+      <View style={[styles.body, landscape && styles.bodyRow]}>
         <View style={[styles.column, landscape && styles.columnMain]}>
-          <View style={styles.card}>
-            <Text style={styles.h}>Aproxime o QR code da sua inscrição</Text>
-            <View style={styles.cameraFrame}>
-              {permission?.granted ? (
-                <CameraView
-                  style={styles.camera}
-                  facing="front"
-                  barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-                  onBarcodeScanned={idle ? onScan : undefined}
-                />
-              ) : (
-                <View style={styles.cameraOff}>
-                  <Text style={styles.cameraOffText}>Câmera desligada</Text>
-                  <Button title="Permitir câmera" onPress={() => void requestPermission()} />
-                </View>
-              )}
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.h}>Ou digite seu nome</Text>
+          {/* Neither input the hardware advertises works here: `expo-camera`
+              opens both lenses without error and never renders a frame, and the
+              built-in reader does not pick up a QR. Until one of them is
+              solved, the totem credentials people by name — so the field is the
+              screen, not an afterthought under a dead black rectangle. */}
+          <View style={[styles.card, styles.searchCard]}>
+            <Text style={styles.h}>Digite seu nome para retirar o crachá</Text>
             <TextInput
+              ref={inputRef}
               style={styles.search}
               placeholder="Seu nome"
               value={query}
-              onChangeText={setQuery}
+              onChangeText={onType}
+              onSubmitEditing={onSubmit}
               autoCorrect={false}
               autoCapitalize="words"
+              blurOnSubmit={false}
               editable={idle}
+              onFocus={() => setTyping(true)}
+              onBlur={() => setTyping(false)}
             />
-            {results.map((s) => (
-              <Pressable key={s.id} onPress={() => pick(s)} style={({ pressed }) => [styles.result, pressed && styles.resultPressed]}>
-                <Text style={styles.resultName}>{s.name}</Text>
-                <Text style={styles.resultMeta}>{[maskEmail(s.email), s.product_name].filter(Boolean).join(' · ')}</Text>
-              </Pressable>
-            ))}
-            {trimmed.length >= MIN_QUERY && results.length === 0 ? <Text style={styles.empty}>Nenhum inscrito com esse nome.</Text> : null}
-            {trimmed.length >= MIN_QUERY ? (
+            <ScrollView style={styles.results} keyboardShouldPersistTaps="handled">
+              {results.map((s) => (
+                <Pressable key={s.id} onPress={() => pick(s)} style={({ pressed }) => [styles.result, pressed && styles.resultPressed]}>
+                  <Text style={styles.resultName}>{s.name}</Text>
+                  <Text style={styles.resultMeta}>{[maskEmail(s.email), s.product_name].filter(Boolean).join(' · ')}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            {event.signups.length === 0 ? (
+              // Silent failure at the door is the worst kind: with an empty
+              // cache every search looks like "you are not on the list".
+              <Text style={styles.empty}>Nenhum inscrito carregado neste aparelho. Toque em atualizar abaixo.</Text>
+            ) : trimmed.length >= MIN_QUERY && results.length === 0 ? (
+              <Text style={styles.empty}>Nenhum inscrito com esse nome.</Text>
+            ) : null}
+            {trimmed.length >= MIN_QUERY || event.signups.length === 0 ? (
               <Pressable onPress={() => void sync.syncNow()} disabled={sync.syncing} style={styles.refresh}>
                 <Text style={styles.refreshText}>{sync.syncing ? 'Atualizando…' : 'Não achou seu nome? Toque para atualizar'}</Text>
               </Pressable>
@@ -138,16 +146,30 @@ export function KioskScreen({ slug, engine, printer: printerOverride, printBadge
           </View>
         </View>
 
+        {typing ? null : (
         <View style={[styles.column, landscape && styles.columnSide]}>
-          <View style={[styles.card, styles.signupCard]}>
-            <Text style={styles.h}>Ainda não se inscreveu?</Text>
-            <Text style={styles.p}>Escaneie com seu celular, faça a inscrição e volte aqui para retirar seu crachá.</Text>
-            <View style={styles.qr}>
-              <QRCode value={signupUrlFor(event)} size={landscape ? 220 : 180} ecl="M" />
+          {/* Hidden exit: hold this card for two seconds. The whole card is the
+              target, not just the QR — a small target plus three seconds asks
+              for a steadier finger than a touchscreen gives, and the press
+              cancels the moment it slips. Everything inside is
+              `pointerEvents="none"` so the SVG cannot swallow the gesture. */}
+          <Pressable
+            accessibilityLabel="Sair do modo totem"
+            onLongPress={confirmExit}
+            delayLongPress={2000}
+            style={[styles.card, styles.signupCard]}
+          >
+            <View pointerEvents="none" style={styles.signupInner}>
+              <Text style={styles.h}>Ainda não se inscreveu?</Text>
+              <Text style={styles.p}>Escaneie com seu celular, faça a inscrição e volte aqui para retirar seu crachá.</Text>
+              <View style={styles.qr}>
+                <QRCode value={signupUrlFor(event)} size={landscape ? 180 : 140} ecl="M" />
+              </View>
             </View>
-          </View>
+          </Pressable>
         </View>
-      </ScrollView>
+        )}
+      </View>
 
       <KioskOverlay
         state={flow.state}
@@ -176,23 +198,20 @@ const currentLabel = () => readLabelPrefs(getPrinterStorage());
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f4f4f5' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  header: { paddingTop: 48, paddingBottom: 16, paddingHorizontal: 24, backgroundColor: '#208AEF' },
-  exitZone: { position: 'absolute', top: 0, left: 0, width: 96, height: 96 },
-  title: { color: '#fff', fontSize: 28, fontWeight: '800' },
-  subtitle: { color: '#dbeafe', fontSize: 16, marginTop: 2 },
-  body: { padding: 16, gap: 16 },
-  bodyRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  column: { gap: 16 },
+  // One screen, no scrolling: the body owns the height and hands the leftover
+  // to the search card, the only part that grows.
+  body: { flex: 1, padding: 16, paddingTop: 24, gap: 12 },
+  bodyRow: { flexDirection: 'row', alignItems: 'stretch' },
+  column: { flex: 1, gap: 12 },
   columnMain: { flex: 3 },
   columnSide: { flex: 2 },
-  card: { backgroundColor: '#fff', borderRadius: 16, padding: 20, gap: 12 },
+  card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, gap: 10 },
+  searchCard: { flex: 1 },
+  results: { flexGrow: 0 },
   signupCard: { alignItems: 'center' },
+  signupInner: { alignItems: 'center', gap: 10 },
   h: { fontSize: 22, fontWeight: '700' },
   p: { fontSize: 16, color: '#52525b', textAlign: 'center' },
-  cameraFrame: { aspectRatio: 4 / 3, borderRadius: 12, overflow: 'hidden', backgroundColor: '#18181b' },
-  camera: { flex: 1 },
-  cameraOff: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  cameraOffText: { color: '#a1a1aa', fontSize: 16 },
   search: { borderWidth: 1, borderColor: '#d4d4d8', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 20 },
   result: { paddingVertical: 14, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#d4d4d8' },
   resultPressed: { backgroundColor: '#f4f4f5' },
