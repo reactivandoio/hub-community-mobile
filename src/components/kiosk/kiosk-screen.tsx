@@ -1,6 +1,6 @@
 import { useKeepAwake } from 'expo-keep-awake';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { matchesSearch } from '@/features/checkin/merge';
@@ -14,7 +14,6 @@ import { readLabelPrefs } from '@/features/printer/printer-prefs';
 import { usePrintBadge, type BadgeData } from '@/features/printer/use-print-badge';
 import { getPrinterStorage, usePrinter, type PrinterState } from '@/features/printer/use-printer';
 import * as topwiseScanner from '../../../modules/topwise-scanner';
-import { ScannerView } from '../../../modules/topwise-scanner';
 import { KioskOverlay } from './kiosk-overlay';
 
 interface Props {
@@ -58,6 +57,31 @@ export function KioskScreen({ slug, engine, printer: printerOverride, printBadge
     syncNow: sync.syncNow,
     resetAfterMs,
   });
+
+  // A read can land at any moment, so the listener reaches the current handler
+  // through a ref instead of re-subscribing — and re-subscribing would mean
+  // stopping and restarting the reader on every render.
+  const onPayload = useRef<(payload: string) => void>(() => {});
+  useEffect(() => {
+    onPayload.current = (payload: string) => {
+      if (flow.state.kind !== 'idle') return;
+      setQuery('');
+      flow.scan(payload);
+    };
+  });
+
+  // Continuous reading lives as long as this screen does, and has to be stopped
+  // on the way out: the vendor service holds the camera until told otherwise,
+  // and a session left open makes every later read come up black.
+  useEffect(() => {
+    if (!scannerAvailable) return;
+    void topwiseScanner.startDecode();
+    const subscription = topwiseScanner.onScanned((payload) => onPayload.current(payload));
+    return () => {
+      subscription?.remove();
+      void topwiseScanner.stopDecode();
+    };
+  }, [scannerAvailable]);
 
   if (!event) {
     return (
@@ -105,26 +129,13 @@ export function KioskScreen({ slug, engine, printer: printerOverride, printBadge
     <View style={styles.screen}>
       {ownPrint.offscreen}
       <View style={[styles.body, landscape && styles.bodyRow]}>
-        <View style={[styles.column, landscape && styles.columnMain]}>
+        <View style={[styles.column, typing && styles.columnTyping, landscape && styles.columnMain]}>
           {/* Neither input the hardware advertises works here: `expo-camera`
               opens both lenses without error and never renders a frame, and the
               built-in reader does not pick up a QR. Until one of them is
               solved, the totem credentials people by name — so the field is the
               screen, not an afterthought under a dead black rectangle. */}
-          {scannerAvailable && ScannerView && !typing ? (
-            <View style={styles.card}>
-              <Text style={styles.h}>Aproxime o QR code da sua inscrição</Text>
-              <ScannerView
-                style={styles.cameraFrame}
-                // Stop acting on reads while a check-in is on screen, so the next
-                // person in the queue cannot scan over someone else's badge.
-                paused={!idle}
-                onScanned={({ nativeEvent }) => submitTicket(nativeEvent.payload)}
-              />
-            </View>
-          ) : null}
-
-          <View style={[styles.card, styles.searchCard]}>
+          <View style={[styles.card, typing && styles.searchCardTyping]}>
             <Text style={styles.h}>Digite seu nome para retirar o crachá</Text>
             <TextInput
               ref={inputRef}
@@ -138,9 +149,15 @@ export function KioskScreen({ slug, engine, printer: printerOverride, printBadge
               blurOnSubmit={false}
               editable={idle}
               onFocus={() => setTyping(true)}
-              onBlur={() => setTyping(false)}
+              onBlur={() => {
+                // Dismissing the keyboard resets the totem for the next person:
+                // the field does not clear itself otherwise, so whoever gave up
+                // halfway would leave their name on screen for the next in line.
+                setTyping(false);
+                setQuery('');
+              }}
             />
-            <ScrollView style={styles.results} keyboardShouldPersistTaps="handled">
+            <ScrollView style={typing ? styles.resultsTyping : styles.results} keyboardShouldPersistTaps="handled">
               {results.map((s) => (
                 <Pressable key={s.id} onPress={() => pick(s)} style={({ pressed }) => [styles.result, pressed && styles.resultPressed]}>
                   <Text style={styles.resultName}>{s.name}</Text>
@@ -184,6 +201,16 @@ export function KioskScreen({ slug, engine, printer: printerOverride, printBadge
               </View>
             </View>
           </Pressable>
+
+          {/* Last on purpose: the reader is a fixed spot below the screen, so the
+              arrow that points at it belongs at the bottom, next to it. */}
+          {scannerAvailable ? (
+            <View style={[styles.card, styles.readerCard]}>
+              <Text style={styles.h}>Aproxime o QR code da inscrição</Text>
+              <Text style={styles.readerArrow}>▼</Text>
+              <Text style={styles.p}>Encoste o código no leitor, logo abaixo da tela.</Text>
+            </View>
+          ) : null}
         </View>
         )}
       </View>
@@ -219,13 +246,26 @@ const styles = StyleSheet.create({
   // to the search card, the only part that grows.
   body: { flex: 1, padding: 16, paddingTop: 24, gap: 12 },
   bodyRow: { flexDirection: 'row', alignItems: 'stretch' },
-  column: { flex: 1, gap: 12 },
+  // No flex here: in portrait the two columns are stacked, and giving both a
+  // share of the height opened a gap in the middle and pushed the reader card
+  // off the bottom. Landscape gets its proportions from columnMain/columnSide.
+  column: { gap: 12 },
+  // Only while typing: the results list needs somewhere to grow into, and
+  // without this the card's flex has no room and the list gets zero height —
+  // matches render, nothing visible, and not even the "no one by that name"
+  // message, because there were results all along.
+  columnTyping: { flex: 1 },
   columnMain: { flex: 3 },
   columnSide: { flex: 2 },
   card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, gap: 10 },
-  searchCard: { flex: 1 },
-  cameraFrame: { width: 280, height: 210, alignSelf: 'center', borderRadius: 12, backgroundColor: '#18181b' },
+  // Only while someone types: then the other cards are hidden and the results
+  // want the room. Idle, it hugged half the screen and pushed the reader card
+  // off the bottom.
+  searchCardTyping: { flex: 1 },
+  readerCard: { alignItems: 'center' },
+  readerArrow: { fontSize: 44, color: '#208AEF', lineHeight: 48 },
   results: { flexGrow: 0 },
+  resultsTyping: { flex: 1 },
   signupCard: { alignItems: 'center' },
   signupInner: { alignItems: 'center', gap: 10 },
   h: { fontSize: 22, fontWeight: '700' },

@@ -86,6 +86,16 @@ describe('KioskScreen', () => {
     expect(screen.getByText('Ainda não se inscreveu?')).toBeTruthy();
   });
 
+  it('clears the field when the keyboard closes, so nobody inherits the last person\'s typing', async () => {
+    await setup();
+    await act(async () => fireEvent.changeText(field(), 'jos'));
+    expect(screen.getByText('José Ção')).toBeTruthy();
+
+    await act(async () => fireEvent(field(), 'blur'));
+    expect(screen.queryByText('José Ção')).toBeNull();
+    expect(field().props.value).toBe('');
+  });
+
   it('scanning a ticket prints, checks in and welcomes the person without confirmation', async () => {
     const { store, printBadge } = await setup();
     await showQr('https://hubcommunity.io/events/ev/signup?ticket=s1');

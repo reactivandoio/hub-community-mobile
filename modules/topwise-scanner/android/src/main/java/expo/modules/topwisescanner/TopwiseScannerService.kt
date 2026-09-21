@@ -68,3 +68,86 @@ object TopwiseScannerService {
     }
   }
 }
+
+/**
+ * Continuous decoding, with no preview and no view.
+ *
+ * The reader on this totem is a fixed spot below the screen, not a camera the
+ * person aims — so there is nothing useful to show, and the earlier in-screen
+ * preview only ever rendered black anyway. The session streams results straight
+ * to [onResult] until [stopDecode].
+ */
+object TopwiseDecoder {
+  private const val CAMERA_DESCRIPTOR = "com.topwise.cloudpos.aidl.camera.AidlCameraScanCode"
+  private const val TX_START_DECODE = 3
+  private const val TX_STOP_DECODE = 4
+
+  private var running = false
+  private var callback: com.topwise.cloudpos.aidl.camera.AidlDecodeCallBack.Stub? = null
+
+  fun start(context: Context, onResult: (String) -> Unit, onError: (Int) -> Unit) {
+    if (running) return
+    running = true
+
+    val stub = object : com.topwise.cloudpos.aidl.camera.AidlDecodeCallBack.Stub() {
+      override fun onResult(result: String?) {
+        if (!result.isNullOrBlank()) onResult(result)
+      }
+
+      override fun onError(error: Int) = onError(error)
+
+      // Frames arrive whether or not anyone draws them; dropping them here keeps
+      // a 2 GB device from paying for a preview nobody sees.
+      override fun onPreview(frame: ByteArray?, width: Int, height: Int) = Unit
+    }
+    callback = stub
+
+    TopwiseScannerService.withCamera(context) { camera ->
+      val vendor = TopwiseScannerService.vendorClassLoader(context)
+      val parameterClass = vendor.loadClass("com.topwise.cloudpos.aidl.camera.DecodeParameter")
+      val modeClass = vendor.loadClass("com.topwise.cloudpos.aidl.camera.DecodeMode")
+      val parameter = parameterClass.getConstructor().newInstance()
+      runCatching {
+        val continuous = modeClass.getField("MODE_CONTINUE_SCAN_CODE").get(null)
+        parameterClass.getMethod("setDecodeMode", modeClass).invoke(parameter, continuous)
+      }
+
+      transact(camera.asBinder(), TX_START_DECODE) { data ->
+        data.writeInt(1)
+        // The vendor object writes itself: DecodeParameter's parcel layout is its
+        // own business, and guessing it from field order would be a coin flip.
+        parameterClass
+          .getMethod("writeToParcel", android.os.Parcel::class.java, Int::class.javaPrimitiveType)
+          .invoke(parameter, data, 0)
+        data.writeStrongBinder(stub.asBinder())
+      }
+    }
+  }
+
+  /**
+   * Always call this. The service keeps an `isScanIng` flag and holds the camera,
+   * so a session left open makes every later read come up black.
+   */
+  fun stop(context: Context) {
+    if (!running) return
+    running = false
+    callback = null
+    TopwiseScannerService.cameraManager(context)?.let {
+      runCatching { transact(it.asBinder(), TX_STOP_DECODE) {} }
+    }
+  }
+
+  private fun transact(binder: IBinder, code: Int, write: (android.os.Parcel) -> Unit) {
+    val data = android.os.Parcel.obtain()
+    val reply = android.os.Parcel.obtain()
+    try {
+      data.writeInterfaceToken(CAMERA_DESCRIPTOR)
+      write(data)
+      binder.transact(code, data, reply, 0)
+      reply.readException()
+    } finally {
+      data.recycle()
+      reply.recycle()
+    }
+  }
+}

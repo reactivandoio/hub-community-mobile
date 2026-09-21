@@ -1,39 +1,31 @@
-import { requireNativeView, requireOptionalNativeModule } from 'expo';
-import type { StyleProp, ViewStyle } from 'react-native';
+import { requireOptionalNativeModule } from 'expo';
 
 /**
  * The totem's own scanner, reached through the vendor service rather than
  * CameraX (see the module's Kotlin for why). Absent on a phone, hence optional.
+ *
+ * There is no preview: the reader is a fixed spot below the screen, not a
+ * camera the person aims, so the kiosk just tells them where to hold the code.
  */
 interface TopwiseScanner {
-  /** Whether this device ships the vendor scanner service at all. */
   isAvailable(): boolean;
-  /** Hands the screen to the vendor's full-screen reader; null when cancelled or timed out. */
-  scan(cameraId: number, timeoutSeconds: number, title: string, reminder: string): Promise<string | null>;
+  startDecode(): Promise<void>;
+  stopDecode(): Promise<void>;
+  addListener(event: 'onScanned', listener: (payload: { payload: string }) => void): { remove(): void };
 }
 
 const native = requireOptionalNativeModule<TopwiseScanner>('TopwiseScanner');
 
 export const isAvailable = (): boolean => native?.isAvailable() ?? false;
 
-/** `AidlScanParam.BACK_CAMERA` / `FRONT_CAMERA` — which lens the service drives. */
-export const BACK_CAMERA = 0;
-export const FRONT_CAMERA = 1;
+export const startDecode = async (): Promise<void> => {
+  await native?.startDecode();
+};
 
-export const scan = async (
-  cameraId: number = BACK_CAMERA,
-  timeoutSeconds = 30,
-  title = 'Aproxime o QR code da sua inscrição',
-  reminder = 'Centralize o código na tela',
-): Promise<string | null> => (native ? native.scan(cameraId, timeoutSeconds, title, reminder) : null);
+/** Always call this when leaving: an unfinished session makes later reads come up black. */
+export const stopDecode = async (): Promise<void> => {
+  await native?.stopDecode();
+};
 
-export interface ScannerViewProps {
-  style?: StyleProp<ViewStyle>;
-  /** Stops acting on reads without tearing the camera down — used while a check-in is on screen. */
-  paused?: boolean;
-  onScanned?: (event: { nativeEvent: { payload: string } }) => void;
-  onScanError?: (event: { nativeEvent: { code: number } }) => void;
-}
-
-/** Live preview inside our own layout, fed by the vendor service's decode stream. */
-export const ScannerView = native ? requireNativeView<ScannerViewProps>('TopwiseScanner') : null;
+export const onScanned = (listener: (payload: string) => void): { remove(): void } | null =>
+  native?.addListener('onScanned', ({ payload }) => listener(payload)) ?? null;

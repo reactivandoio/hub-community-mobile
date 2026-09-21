@@ -70,14 +70,26 @@ class TopwiseScannerModule : Module() {
       }
     }
 
-    View(TopwiseScannerView::class) {
-      Events("onScanned", "onScanError")
+    Events("onScanned", "onScanError")
 
-      // Held while the check-in overlay is up, so the next person in the queue
-      // cannot scan over someone else's badge.
-      Prop("paused") { view: TopwiseScannerView, paused: Boolean ->
-        view.paused = paused
+    // Continuous reading with no preview: on this totem the reader is a fixed
+    // spot below the screen, not a camera anyone aims.
+    AsyncFunction("startDecode") { promise: Promise ->
+      try {
+        TopwiseDecoder.start(
+          context,
+          onResult = { payload -> sendEvent("onScanned", mapOf("payload" to payload)) },
+          onError = { code -> sendEvent("onScanError", mapOf("code" to code)) },
+        )
+        promise.resolve(null)
+      } catch (err: Throwable) {
+        promise.reject("DECODE_FAILED", err.message ?: "Could not start the reader", err)
       }
+    }
+
+    AsyncFunction("stopDecode") { promise: Promise ->
+      runCatching { TopwiseDecoder.stop(context) }
+      promise.resolve(null)
     }
   }
 
