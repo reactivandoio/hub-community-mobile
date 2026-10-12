@@ -48,3 +48,4 @@ example
 # native module build output
 modules/**/android/build/
 modules/**/android/.cxx/
+modules/**/android/.gradle/
