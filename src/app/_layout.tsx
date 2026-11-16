@@ -1,15 +1,32 @@
 import { ApolloProvider } from '@apollo/client';
-import { Stack } from 'expo-router';
-import { useState } from 'react';
-import { CheckinStoreProvider } from '@/features/checkin/store-provider';
+import { SplashScreen } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { AccessCache } from '@/features/auth/access-cache';
+import { RootNavigator } from '@/components/root-navigator';
+import { AuthProvider } from '@/features/auth/auth-provider';
+import { SessionStore } from '@/features/auth/session';
+import { CheckinStoreProvider, mmkvStorage } from '@/features/checkin/store-provider';
 import { createApolloClient } from '@/lib/apollo-client';
+import { secureStorage } from '@/lib/auth-token';
+
+// The keychain is read before the first screen, so nobody sees the login flash by.
+void SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const [client] = useState(createApolloClient);
+  const [session] = useState(() => new SessionStore(secureStorage));
+  const [client] = useState(() => createApolloClient(session.currentToken));
+  const [accessCache] = useState(() => new AccessCache(mmkvStorage('session')));
+
+  useEffect(() => {
+    void session.restore();
+  }, [session]);
+
   return (
     <ApolloProvider client={client}>
       <CheckinStoreProvider>
-        <Stack screenOptions={{ headerTitle: 'HubCommunity' }} />
+        <AuthProvider session={session} accessCache={accessCache}>
+          <RootNavigator />
+        </AuthProvider>
       </CheckinStoreProvider>
     </ApolloProvider>
   );

@@ -1,6 +1,5 @@
 import { ApolloClient, ApolloLink, HttpLink, InMemoryCache } from '@apollo/client';
 import { setContext } from '@apollo/client/link/context';
-import { clearAuthToken, getAuthToken } from './auth-token';
 import { isTokenExpired } from './jwt';
 
 interface AuthLinkOptions {
@@ -24,10 +23,11 @@ export const createAuthLink = ({ getToken, onExpired }: AuthLinkOptions): Apollo
 
 export const GRAPHQL_URL = process.env.EXPO_PUBLIC_GRAPHQL_URL ?? 'https://bff.hubcommunity.io/graphql';
 
-export const createApolloClient = () =>
+// `getToken` is the session's (SessionStore.currentToken): it already ends an expired session.
+export const createApolloClient = (getToken: () => Promise<string | null>) =>
   new ApolloClient({
     link: ApolloLink.from([
-      createAuthLink({ getToken: getAuthToken, onExpired: clearAuthToken }),
+      createAuthLink({ getToken }),
       new HttpLink({ uri: GRAPHQL_URL }),
     ]),
     cache: new InMemoryCache(),

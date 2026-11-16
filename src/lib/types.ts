@@ -5,6 +5,21 @@ export interface EventSummary {
   title: string;
   start_date: string;
   location?: { title?: string | null; city?: string | null } | null;
+  communities?: { id: string }[] | null;
+}
+
+export interface RequestLoginCodeResponse {
+  requestLoginCode: { sent: boolean; resendIn: number };
+}
+
+export interface VerifyLoginCodeResponse {
+  verifyLoginCode: {
+    id?: string | null;
+    token?: string | null;
+    email?: string | null;
+    username?: string | null;
+    name?: string | null;
+  };
 }
 
 export interface EventsResponse {

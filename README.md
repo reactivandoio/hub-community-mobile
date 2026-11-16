@@ -15,6 +15,10 @@ pnpm test
 
 Impressão USB exige dev build Android: `pnpm android` (emulador ou aparelho com OTG).
 
+O login é só por código enviado ao e-mail. O menu "Gestão de eventos" (check-in, inscrição na porta,
+totem) aparece só para Admin, Community Manager e Event Manager, com os eventos que a pessoa gere.
+Plano de paridade com o web: [`docs/paridade-web.md`](docs/paridade-web.md).
+
 ## Estrutura
 
 ```

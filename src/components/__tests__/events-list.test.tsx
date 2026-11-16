@@ -12,6 +12,7 @@ const event = (id: string, title: string) => ({
   title,
   start_date: '2026-10-01T12:00:00.000Z',
   location: { __typename: 'Location', title: 'Sebrae', city: 'Goiânia' },
+  communities: [],
 });
 
 const withEvents = (data: object[]) => [
