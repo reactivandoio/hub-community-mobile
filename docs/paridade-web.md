@@ -9,6 +9,11 @@ trabalho é de tela: as regras de negócio, permissões e e-mails já estão no 
 
 ---
 
+Spec: `docs/superpowers/specs/2026-11-16-app-mobile-paridade-design.md` · Plano de execução e cards:
+`docs/superpowers/plans/2026-11-16-app-mobile-paridade.md`.
+
+---
+
 ## 1. Inventário do web
 
 ### 1.1 Público (sem login)
