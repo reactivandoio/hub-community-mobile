@@ -5,8 +5,8 @@ import type { EventCache } from './types';
 
 // react-native-mmkv 4 (Nitro) exposes `MMKV` only as a type; instances come
 // from the `createMMKV` factory, and key removal is `.remove`, not `.delete`.
-const mmkvStorage = (): KeyValueStorage => {
-  const mmkv = createMMKV({ id: 'checkin' });
+export const mmkvStorage = (id = 'checkin'): KeyValueStorage => {
+  const mmkv = createMMKV({ id });
   return {
     getString: (k) => mmkv.getString(k),
     set: (k, v) => mmkv.set(k, v),

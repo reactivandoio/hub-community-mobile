@@ -1,18 +1,34 @@
-import { useApolloClient } from '@apollo/client';
+import { useApolloClient, useQuery } from '@apollo/client';
 import { useRouter, type Href } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Button, StyleSheet, Text, View } from 'react-native';
-import { EventsList } from '@/components/events-list';
+import { EventsList, EVENTS_VARIABLES } from '@/components/events-list';
+import { useAuth } from '@/features/auth/auth-provider';
 import { createApolloTransport } from '@/features/checkin/apollo-transport';
 import { useCheckinStore, useLoadedEvents } from '@/features/checkin/store-provider';
-import type { EventSummary } from '@/lib/types';
+import { manageableEvents, managesEvent } from '@/lib/admin-access';
+import { EVENTS } from '@/lib/queries';
+import type { EventsResponse, EventSummary } from '@/lib/types';
 
 const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
+/**
+ * The management menu (REA-58): only the events this user may manage, by the BFF's rules
+ * (lib/admin-access.ts). Reached only by Admin, Community Manager and Event Manager.
+ */
 export function EventsHome() {
   const store = useCheckinStore();
-  const loaded = useLoadedEvents();
+  const { access } = useAuth();
   const client = useApolloClient();
+  // Same query as EventsList (deduplicated by Apollo): the community of each event decides
+  // whether a community manager sees the loaded copy below.
+  const { data } = useQuery<EventsResponse>(EVENTS, { variables: EVENTS_VARIABLES });
+  const known = data?.events?.data;
+  // Offline (no list), the loaded events stay: they were loaded by this same person, since
+  // another sign-in on the device wipes them (AuthProvider.signIn).
+  const loaded = useLoadedEvents().filter(
+    (l) => managesEvent(access, { slug: l.slug }) || !known || manageableEvents(access, known).some((e) => e.slug === l.slug),
+  );
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -50,6 +66,8 @@ export function EventsHome() {
         </View>
       ) : null}
       <EventsList
+        filter={(events) => manageableEvents(access, events)}
+        emptyText="Nenhum evento para você gerir."
         renderAction={(event) => {
           const cached = loaded.some((l) => l.slug === event.slug);
           return (

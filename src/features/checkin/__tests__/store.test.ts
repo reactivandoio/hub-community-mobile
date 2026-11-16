@@ -141,3 +141,23 @@ describe('CheckinStore', () => {
     expect(store.listEvents()).toEqual([]);
   });
 });
+
+describe('clear and pendingCount (REA-58)', () => {
+  it('counts the outbox of every event and forgets everything on clear', () => {
+    const storage = new MemoryStorage();
+    const store = new CheckinStore({ storage });
+    store.loadEvent('a', 'A', [{ id: 's1', name: 'Ana' }]);
+    store.loadEvent('b', 'B', [{ id: 's2', name: 'Bia' }]);
+    store.checkIn('a', 's1');
+    store.checkIn('b', 's2');
+    expect(store.pendingCount()).toBe(2);
+    const listener = jest.fn();
+    store.subscribe(listener);
+    store.clear();
+    expect(listener).toHaveBeenCalled();
+    expect(store.listEvents()).toEqual([]);
+    expect(store.pendingCount()).toBe(0);
+    // Nothing comes back on the next launch either.
+    expect(new CheckinStore({ storage }).listEvents()).toEqual([]);
+  });
+});

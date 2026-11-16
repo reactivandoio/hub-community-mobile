@@ -225,6 +225,23 @@ export class CheckinStore {
     this.notify();
   }
 
+  /** Check-ins and walk-ins not yet accepted by the server, across every loaded event. */
+  pendingCount(): number {
+    return [...this.events.values()].reduce((n, ev) => n + ev.outbox.length, 0);
+  }
+
+  /**
+   * Forgets every loaded event (REA-58): on sign-out, and when somebody else signs in on this
+   * device. The cached lists hold attendees' names, e-mails and phones (LGPD), so they must not
+   * outlive the session of the person allowed to see them.
+   */
+  clear() {
+    for (const slug of this.events.keys()) this.storage.delete(eventKey(slug));
+    this.events.clear();
+    this.persistIndex();
+    this.notify();
+  }
+
   private requireEvent(slug: string): EventCache {
     const ev = this.events.get(slug);
     if (!ev) throw new Error(`Evento não carregado: ${slug}`);

@@ -1,10 +1,12 @@
 // All GraphQL operations live here (same convention as the web frontend).
 import { gql } from '@apollo/client';
 
-// The app is the operator's tool at the door, so it lists the unlisted events
-// too: `unlisted` hides an event from the public site, not from whoever is
-// running the check-in — and without it in this list there is no way to open
-// the event, let alone put it in kiosk mode.
+// The management menu is the operator's tool at the door, so it lists the
+// unlisted events too: `unlisted` hides an event from the public site, not from
+// whoever is running the check-in — and without it in this list there is no way
+// to open the event, let alone put it in kiosk mode. `communities` feeds
+// manageableEvents (lib/admin-access.ts): a community manager sees the events
+// of the communities it organizes.
 export const EVENTS = gql`
   query Events($sort: [EventSort]) {
     events(sort: $sort, include_unlisted: true) {
@@ -18,6 +20,54 @@ export const EVENTS = gql`
           title
           city
         }
+        communities {
+          id
+        }
+      }
+    }
+  }
+`;
+
+// REA-26: the login is only by a 6-digit code sent to the e-mail; there is no password.
+export const REQUEST_LOGIN_CODE = gql`
+  mutation RequestLoginCode($email: String!) {
+    requestLoginCode(email: $email) {
+      sent
+      resendIn
+    }
+  }
+`;
+
+export const VERIFY_LOGIN_CODE = gql`
+  mutation VerifyLoginCode($email: String!, $code: String!) {
+    verifyLoginCode(email: $email, code: $code) {
+      id
+      token
+      email
+      username
+      name
+    }
+  }
+`;
+
+// REA-10/REA-48: who may manage what. Null when the BFF does not accept the token.
+export const ADMIN_ACCESS = gql`
+  query AdminAccess {
+    adminAccess {
+      role
+      isAdmin
+      isCommunityManager
+      isEventManager
+      canAccessAdmin
+      communities {
+        id
+        title
+        slug
+      }
+      events {
+        id
+        title
+        slug
       }
     }
   }

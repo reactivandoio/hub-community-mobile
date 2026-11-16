@@ -19,11 +19,21 @@ function EventRow({ event, action }: { event: EventSummary; action?: ReactNode }
   );
 }
 
-export function EventsList({ renderAction }: { renderAction?: (event: EventSummary) => ReactNode }) {
-  const { data, loading, error } = useQuery<EventsResponse>(EVENTS, {
-    variables: { sort: [{ start_date: 'DESC' }] },
-  });
-  const events = data?.events?.data ?? [];
+export const EVENTS_VARIABLES = { sort: [{ start_date: 'DESC' }] };
+
+export function EventsList({
+  renderAction,
+  filter,
+  emptyText = 'Nenhum evento encontrado.',
+}: {
+  renderAction?: (event: EventSummary) => ReactNode;
+  /** Which of the events to show (REA-58: the ones the user manages). */
+  filter?: (events: EventSummary[]) => EventSummary[];
+  emptyText?: string;
+}) {
+  const { data, loading, error } = useQuery<EventsResponse>(EVENTS, { variables: EVENTS_VARIABLES });
+  const all = data?.events?.data ?? [];
+  const events = filter ? filter(all) : all;
 
   if (loading) return <ActivityIndicator style={styles.center} />;
   if (error) return <Text style={[styles.center, styles.error]}>Erro ao carregar eventos: {error.message}</Text>;
@@ -34,7 +44,7 @@ export function EventsList({ renderAction }: { renderAction?: (event: EventSumma
       keyExtractor={(event) => event.id}
       renderItem={({ item }) => <EventRow event={item} action={renderAction?.(item)} />}
       contentContainerStyle={events.length === 0 ? styles.center : undefined}
-      ListEmptyComponent={<Text style={styles.meta}>Nenhum evento encontrado.</Text>}
+      ListEmptyComponent={<Text style={styles.meta}>{emptyText}</Text>}
     />
   );
 }

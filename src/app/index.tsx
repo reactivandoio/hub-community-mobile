@@ -1,5 +1,5 @@
-import { EventsHome } from '@/components/checkin/events-home';
+import { HomeScreen } from '@/components/home/home-screen';
 
 export default function Index() {
-  return <EventsHome />;
+  return <HomeScreen />;
 }

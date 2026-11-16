@@ -11,13 +11,23 @@ Expo SDK 57 (React Native 0.86, React 19.2), expo-router with `src/app`, TypeScr
 
 ## Architecture
 - Talks to the same GraphQL BFF as the web frontend (`EXPO_PUBLIC_GRAPHQL_URL`, default production). Reuse operation shapes from `hub-community-frontend/src/lib/queries.ts`.
-- `src/lib/apollo-client.ts` — `createAuthLink` attaches `Authorization: Bearer` only for a stored, non-expired token (same rule as the web `authLink`); expired tokens are cleared. Token lives in `expo-secure-store` (`src/lib/auth-token.ts`).
+- `src/lib/apollo-client.ts` — `createAuthLink` attaches `Authorization: Bearer` only for a non-expired token (same rule as the web `authLink`); the token comes from `SessionStore.currentToken`, which ends an expired session.
 - `src/app/` holds ONLY routes/layouts — every file there becomes a route, so screen components and their tests live in `src/components/`.
 - GraphQL operations in `src/lib/queries.ts`, types in `src/lib/types.ts`.
 
+## Login and roles (REA-58, `src/features/auth`)
+- Login is **only by a 6-digit code sent to the e-mail** (REA-26: `requestLoginCode` → `verifyLoginCode`). There is no password anywhere; never add one.
+- `SessionStore` (`session.ts`) keeps token + user in `expo-secure-store` (`auth_token`, `auth_user`, via `src/lib/auth-token.ts`) and in memory; injectable `SecretStorage` for tests.
+- `AuthProvider` runs `adminAccess` after the login and caches the last confirmed answer in MMKV (`session` instance, `AccessCache`), so the management menu opens offline at the door. `adminAccess: null` (token refused) signs out without wiping the check-in cache.
+- Sign-out wipes the cached check-in events (attendees' personal data, LGPD); a sign-in by a different user on the device wipes them too (`AccessCache.owner`).
+- `src/lib/admin-access.ts` mirrors the BFF's `canAccessAdmin`/`isEventOrganizer` (and the web's `visibleEvents`). It only decides what is shown; the BFF refuses check-in calls for events the user does not manage.
+- Routes: `src/components/root-navigator.tsx` uses nested `Stack.Protected` — signed out: `login`; signed in: `index` (home); Admin/Community Manager/Event Manager: `gestao` + `checkin/[slug]/*`. A new route must be listed there, or it is reachable by anyone. Guard tests use `renderRouter` from `expo-router/testing-library`.
+- Parity plan with the web: `docs/paridade-web.md`.
+
 ## Testing
 - Tests in colocated `__tests__/` folders (`*.test.ts(x)`), never inside `src/app/`.
-- RNTL 14: `render` is async — `await render(...)` before using `screen`.
+- RNTL 14: `render` and `fireEvent` are async — `await` them, or you get "overlapping act() calls".
+- Screens that call `useAuth` are tested with `jest.mock('@/features/auth/auth-provider', ...)`; fixtures in `src/test/auth-fixtures.ts`.
 - Apollo `MockedProvider` needs `__typename` in mocked data.
 
 ## Offline check-in (`src/features/checkin`, `src/features/printer`)
